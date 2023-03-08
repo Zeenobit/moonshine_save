@@ -1,8 +1,9 @@
-#[doc = include_str!("../README.md")]
+#![doc = include_str!("../README.md")]
 
 pub mod load;
 pub mod save;
 
+/// Common elements for saving/loading world state.
 pub mod prelude {
     pub use crate::load::{
         component_from_loaded, load_from_file, Error as LoadError, FromLoaded, LoadPlugin, LoadSet,
