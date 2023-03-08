@@ -143,7 +143,7 @@ fn should_load( /* ... */ ) -> bool {
 
 ## Example
 
-See `examples/army.rs` for a minimal application which demonstrates how to save/load game state in detail.
+See [examples/army.rs](examples/army.rs) for a minimal application which demonstrates how to save/load game state in detail.
 
 ## Configuration
 
