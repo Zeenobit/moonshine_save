@@ -1,3 +1,5 @@
+//! Elements related to saving world state.
+//! 
 //! # Example
 //! ```
 //! use bevy::prelude::*;
@@ -24,7 +26,7 @@
 pub use std::io::Error as WriteError;
 use std::path::PathBuf;
 
-use bevy_app::prelude::{App, AppTypeRegistry, CoreSet, Plugin};
+use bevy_app::{App, AppTypeRegistry, CoreSet, Plugin};
 use bevy_ecs::{prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfig};
 use bevy_scene::{DynamicScene, DynamicSceneBuilder};
 use bevy_utils::tracing::{error, info};
