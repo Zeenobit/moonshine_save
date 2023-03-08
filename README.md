@@ -38,7 +38,7 @@ struct PlayerBundle {
 
 Add `SavePlugin` and register your serialized components:
 
-```ignore
+```rust,ignore
 app.add_plugin(SavePlugin)
     .register_type::<Player>()
     .register_type::<Level>();
@@ -64,7 +64,7 @@ fn should_save( /* ... */ ) -> bool {
 
 Before loading, mark your visual and aesthetic entities with `Unload`. Similar to `Save`, this is a marker which can be added to bundles or inserted into entities like a regular component. Any entity with `Unload` is despawned recursively prior to load.
 
-```ignore
+```rust,ignore
 #[derive(Bundle)]
 struct PlayerSpriteBundle {
     /* ... */
@@ -75,7 +75,7 @@ struct PlayerSpriteBundle {
 You should try to design your game logic to keep saved data separate from game visuals.
 This can be done by using systems which spawn visuals for saved game data:
 
-```ignore
+```rust,ignore
 #[derive(Component)] // <-- Does not derive Reflect, not saved!
 struct PlayerSprite(Entity);
 
@@ -101,7 +101,7 @@ fn spawn_player_visuals(query: Query<Entity, Added<Player>>, mut commands: Comma
 
 Any saved components which reference entities must implement `FromLoaded` and be invoked during post load using `component_from_loaded`:
 
-```ignore
+```rust,ignore
 #[derive(Component, Default, Reflect)]
 #[reflect(Component)]
 struct PlayerWeapon(Option<Entity>);
@@ -119,7 +119,7 @@ app.add_system(component_from_loaded::<PlayerWeapon>());
 
 Make sure `LoadPlugin` is added and your types are registered:
 
-```ignore
+```rust,ignore
 app.add_plugin(LoadPlugin)
     .register_type::<Player>()
     .register_type::<Level>();
@@ -127,13 +127,13 @@ app.add_plugin(LoadPlugin)
 
 Finally, to invoke the load process, you must add a load pipeline. The default load pipeline is `load_from_file`:
 
-```ignore
+```rust,ignore
 app.add_system(load_from_file("saved.ron"));
 ```
 
 Similar to `save_into_file`, you typically want to use `load_from_file` with `run_if`:
 
-```ignore
+```rust,ignore
 app.add_system(load_from_file("saved.ron").run_if(should_load));
 
 fn should_load( /* ... */ ) -> bool {
