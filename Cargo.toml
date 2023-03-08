@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "Save/Load framework for Bevy game engine"
+homepage = "https://github.com/Zeenobit/moonshine_save"
+repository = "https://github.com/Zeenobit/moonshine_save"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
