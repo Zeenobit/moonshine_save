@@ -14,7 +14,7 @@ This crate aims to solve this issue by providing a framework and a collection of
 
 ### Save
 
-In order to save game state, start by marking components which must be saved using the `Save` marker. This is a component which can be added to bundles or inserted into entities like any other component:
+In order to save game state, start by marking entities which must be saved using the `Save` marker. This is a component which can be added to bundles or inserted into entities like any other component:
 ```rust,ignore
 // Saved components must derive `Reflect`
 #[derive(Component, Default, Reflect)]
