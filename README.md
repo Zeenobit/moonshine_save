@@ -145,6 +145,67 @@ fn should_load( /* ... */ ) -> bool {
 
 See [examples/army.rs](examples/army.rs) for a minimal application which demonstrates how to save/load game state in detail.
 
+## Bevy Components
+
+Some built-in Bevy components reference entities, most notably `Parent` and `Children`. Currently, this crate does not implement `FromLoaded` for these components. The rationale for this is that these components are often used for game aesthetics, rather than saved game data.
+
+Ideally, your saved game data should be completely separate from the aesthetic elements.
+
+## Dynamic Save File Path
+
+In the examples provided, the save file path is often static (i.e. known at compile time). However, in some applications, it may be necessary to save into a path selected at runtime. To solve this, you have to create a custom save pipeline.
+
+Start by creating a mechanism to trigger the save request. You can use a `Resource` for this:
+```rust,ignore
+// Save request with a dynamic path
+#[derive(Resource)]
+struct SaveRequest {
+    path: PathBuf
+}
+
+// Run criteria used to trigger the save pipeline
+fn should_save(request: Option<Res<SaveRequest>>) -> bool {
+    request.is_some()
+}
+
+// Finish the save pipeline by removing the request
+fn remove_save_request(world: &mut World) {
+    world.remove_resource::<SaveRequest>().unwrap();
+}
+```
+
+Then implement the system responsible for handling the save request to write the saved data into the correct path:
+```rust
+fn into_dynamic_file(
+    In(saved): In<Saved>,
+    type_registry: Res<AppTypeRegistry>,
+    request: Res<SaveRequest>
+) -> Result<Saved, Error> {
+    let data = saved.scene.serialize_ron(&type_registry)?;
+    std::fs::write(&path, data.as_bytes())?;
+    info!("saved into file: {path:?}");
+    Ok(saved)
+}
+```
+The example above is based on [`into_file`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.into_file.html).
+
+Finally, define your save pipeline and register your systems:
+
+```rust
+fn save_into_dynamic_file() -> SystemConfig {
+    save::<With<Save>>
+        .pipe(into_dynamic_file)
+        .pipe(finish)
+        .in_set(SaveSet::Save)
+}
+
+app.add_systems(
+    (save_into_dynamic_file(), remove_save_request)
+        .chain()
+        .distributive_run_if(should_save),
+);
+```
+
 ## Configuration
 
 This crate is designed to be modular and fully configurable. The default save/load pipelines (`save_into_file` and `load_from_file`) are composed of sub-systems which can be used individually in any desirable configuration with other systems. You may refer to their implementation for details on how this can be done.
