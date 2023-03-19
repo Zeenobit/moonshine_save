@@ -65,7 +65,7 @@ pub enum SaveSet {
 /// A [`Resource`] which contains the saved [`World`] data during [`SaveSet::PostSave`].
 #[derive(Resource)]
 pub struct Saved {
-    pub(crate) scene: DynamicScene,
+    pub scene: DynamicScene,
 }
 
 /// A [`Component`] which marks its [`Entity`] to be saved.
