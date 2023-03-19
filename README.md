@@ -182,7 +182,7 @@ fn into_dynamic_file(
     request: Res<SaveRequest>
 ) -> Result<Saved, Error> {
     let data = saved.scene.serialize_ron(&type_registry)?;
-    std::fs::write(&path, data.as_bytes())?;
+    std::fs::write(&request.path, data.as_bytes())?;
     info!("saved into file: {path:?}");
     Ok(saved)
 }
