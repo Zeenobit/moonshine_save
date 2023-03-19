@@ -175,7 +175,7 @@ fn remove_save_request(world: &mut World) {
 ```
 
 Then implement the system responsible for handling the save request to write the saved data into the correct path:
-```rust
+```rust,ignore
 fn into_dynamic_file(
     In(saved): In<Saved>,
     type_registry: Res<AppTypeRegistry>,
@@ -191,14 +191,15 @@ The example above is based on [`into_file`](https://docs.rs/moonshine-save/lates
 
 Finally, define your save pipeline and register your systems:
 
-```rust
+```rust,ignore
 fn save_into_dynamic_file() -> SystemConfig {
     save::<With<Save>>
         .pipe(into_dynamic_file)
         .pipe(finish)
         .in_set(SaveSet::Save)
 }
-
+```
+```rust,ignore
 app.add_systems(
     (save_into_dynamic_file(), remove_save_request)
         .chain()
