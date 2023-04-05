@@ -1,5 +1,5 @@
 //! Elements related to saving world state.
-//! 
+//!
 //! # Example
 //! ```
 //! use bevy::prelude::*;
@@ -69,7 +69,7 @@ pub struct Saved {
 }
 
 /// A [`Component`] which marks its [`Entity`] to be saved.
-#[derive(Component, Default)]
+#[derive(Component, Default, Clone)]
 pub struct Save;
 
 #[derive(Debug)]

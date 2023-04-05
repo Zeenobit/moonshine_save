@@ -1,5 +1,5 @@
 //! Elements related to loading saved world state.
-//! 
+//!
 //! # Example
 //! ```
 //! use bevy::prelude::*;
@@ -38,8 +38,7 @@ pub use std::io::Error as ReadError;
 use std::path::PathBuf;
 
 use bevy_app::{
-    {App, AppTypeRegistry, Plugin},
-    CoreSet,
+    CoreSet, {App, AppTypeRegistry, Plugin},
 };
 use bevy_ecs::{entity::EntityMap, prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfig};
 use bevy_hierarchy::DespawnRecursiveExt;
@@ -126,7 +125,7 @@ pub enum LoadSet {
 ///     }
 /// }
 /// ```
-#[derive(Component, Default)]
+#[derive(Component, Default, Clone)]
 pub struct Unload;
 
 /// A [`Resource`] which contains the loaded entity map. See [`FromLoaded`] for usage.
