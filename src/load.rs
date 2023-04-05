@@ -135,6 +135,10 @@ pub struct Loaded {
 }
 
 impl Loaded {
+    pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.entities.values().copied()
+    }
+
     pub fn entity(&self, index: u32) -> Entity {
         *self.entities.get(&index).unwrap()
     }
@@ -195,6 +199,7 @@ pub fn load_from_file(path: impl Into<PathBuf>) -> SystemConfig {
     from_file(path)
         .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
         .pipe(load)
+        .pipe(insert_into_loaded(Save))
         .pipe(finish)
         .in_set(LoadSet::Load)
 }
@@ -242,13 +247,23 @@ pub fn load(In(result): In<Result<Saved, Error>>, world: &mut World) -> Result<L
     scene.write_to_world(world, &mut entity_map)?;
     let entities = entity_map
         .iter()
-        .map(|(key, entity)| {
-            world.entity_mut(entity).insert(Save);
-            (key.index(), entity)
-        })
+        .map(|(key, entity)| (key.index(), entity))
         .collect();
 
     Ok(Loaded { entities })
+}
+
+pub fn insert_into_loaded(
+    bundle: impl Bundle + Clone,
+) -> impl Fn(In<Result<Loaded, Error>>, &mut World) -> Result<Loaded, Error> {
+    move |In(result), world| {
+        if let Ok(loaded) = &result {
+            for entity in loaded.entities() {
+                world.entity_mut(entity).insert(bundle.clone());
+            }
+        }
+        result
+    }
 }
 
 /// A [`System`] which finishes the load process.
