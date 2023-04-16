@@ -328,6 +328,14 @@ impl<T: FromLoaded> FromLoaded for Option<T> {
     }
 }
 
+impl<T: FromLoaded> FromLoaded for Vec<T> {
+    fn from_loaded(old: Self, loaded: &Loaded) -> Self {
+        old.into_iter()
+            .map(|old| T::from_loaded(old, loaded))
+            .collect()
+    }
+}
+
 /// A [`SystemConfig`] which automatically invokes [`FromLoaded`] on given [`Component`] type during [`LoadSet::PostLoad`].
 pub fn component_from_loaded<T: Component + FromLoaded>() -> SystemConfig {
     (|loaded: Res<Loaded>, mut query: Query<&mut T>| {
