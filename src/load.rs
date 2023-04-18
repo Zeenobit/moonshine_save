@@ -41,7 +41,7 @@ use bevy_app::{
     CoreSet, {App, AppTypeRegistry, Plugin},
 };
 use bevy_ecs::{entity::EntityMap, prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfig};
-use bevy_hierarchy::DespawnRecursiveExt;
+use bevy_hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
 use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
 use bevy_utils::{
     tracing::{error, info},
@@ -68,6 +68,7 @@ impl Plugin for LoadPlugin {
                 .after(CoreSet::FirstFlush)
                 .before(SaveSet::Save),
         )
+        .add_system(hierarchy_from_loaded.in_set(LoadSet::PostLoad))
         .add_systems((remove_loaded, apply_system_buffers).in_set(LoadSet::Flush));
     }
 }
@@ -350,12 +351,24 @@ pub fn component_from_loaded<T: Component + FromLoaded>() -> SystemConfig {
     .in_set(LoadSet::PostLoad)
 }
 
+pub fn hierarchy_from_loaded(
+    loaded: Res<Loaded>,
+    query: Query<(Entity, &Parent)>,
+    mut commands: Commands,
+) {
+    for (entity, old_parent) in &query {
+        let new_parent = loaded.entity(old_parent.get().index());
+        commands.entity(entity).set_parent(new_parent);
+    }
+}
+
 #[test]
 fn test() {
     use std::fs::*;
 
     use bevy::prelude::*;
 
+    pub const PATH: &str = "test_load.ron";
     pub const DATA: &str = "(
         entities: {
             0: (
@@ -372,7 +385,6 @@ fn test() {
     #[reflect(Component)]
     struct Dummy;
 
-    pub const PATH: &str = "test_load.ron";
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .register_type::<Dummy>()
@@ -385,6 +397,67 @@ fn test() {
         .query::<With<Dummy>>()
         .get_single(&app.world)
         .is_ok());
+
+    remove_file(PATH).unwrap();
+}
+
+#[test]
+fn test_hierarchy() {
+    use std::fs::*;
+
+    use bevy::prelude::*;
+
+    use crate::save::{save_into_file, SavePlugin};
+
+    pub const PATH: &str = "test_load_hierarchy.ron";
+
+    {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugin(HierarchyPlugin)
+            .add_plugin(SavePlugin)
+            .add_system(save_into_file(PATH));
+
+        let entity = app
+            .world
+            .spawn(Save)
+            .with_children(|parent| {
+                parent.spawn(Save);
+                parent.spawn(Save);
+            })
+            .id();
+
+        app.update();
+
+        let world = app.world;
+        let children = world.get::<Children>(entity).unwrap();
+        assert_eq!(children.iter().count(), 2);
+        for child in children.iter() {
+            let parent = world.get::<Parent>(*child).unwrap().get();
+            assert_eq!(parent, entity);
+        }
+    }
+
+    {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugin(HierarchyPlugin)
+            .add_plugin(LoadPlugin)
+            .add_system(load_from_file(PATH));
+
+        // Spawn an entity to offset indices
+        app.world.spawn_empty();
+
+        app.update();
+
+        let mut world = app.world;
+        let (entity, children) = world.query::<(Entity, &Children)>().single(&world);
+        assert_eq!(children.iter().count(), 2);
+        for child in children.iter() {
+            let parent = world.get::<Parent>(*child).unwrap().get();
+            assert_eq!(parent, entity);
+        }
+    }
 
     remove_file(PATH).unwrap();
 }
