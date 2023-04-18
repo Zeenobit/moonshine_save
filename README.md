@@ -147,7 +147,8 @@ See [examples/army.rs](examples/army.rs) for a minimal application which demonst
 
 ## Bevy Components
 
-Some built-in Bevy components reference entities, most notably `Parent` and `Children`. Currently, this crate does not implement `FromLoaded` for these components. The rationale for this is that these components are often used for game aesthetics, rather than saved game data.
+Some built-in Bevy components reference entities, most notably `Parent` and `Children`.
+While this crate does support loading of `Parent` and `Children` (you must enable "hierarchy" feature for this), none of the other Bevy components are supported. The rationale for this is that these components are often used for game aesthetics, rather than saved game data.
 
 Ideally, your saved game data should be completely separate from the aesthetic elements.
 
@@ -213,3 +214,9 @@ This crate is designed to be modular and fully configurable. The default save/lo
 
 [World]: https://docs.rs/bevy/latest/bevy/ecs/world/struct.World.html
 [DynamicScene]: https://docs.rs/bevy/latest/bevy/prelude/struct.DynamicScene.html
+
+## TODO
+
+- [ ] Improved Documentation
+- [ ] More Simplified Examples
+- [ ] Built-in solution for dynamic file names
