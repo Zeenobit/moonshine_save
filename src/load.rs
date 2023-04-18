@@ -68,8 +68,10 @@ impl Plugin for LoadPlugin {
                 .after(CoreSet::FirstFlush)
                 .before(SaveSet::Save),
         )
-        .add_system(hierarchy_from_loaded.in_set(LoadSet::PostLoad))
         .add_systems((remove_loaded, apply_system_buffers).in_set(LoadSet::Flush));
+
+        #[cfg(feature = "hierarchy")]
+        app.add_system(hierarchy_from_loaded.in_set(LoadSet::PostLoad));
     }
 }
 
@@ -351,6 +353,7 @@ pub fn component_from_loaded<T: Component + FromLoaded>() -> SystemConfig {
     .in_set(LoadSet::PostLoad)
 }
 
+#[cfg(feature = "hierarchy")]
 pub fn hierarchy_from_loaded(
     loaded: Res<Loaded>,
     query: Query<(Entity, &Parent)>,
@@ -402,6 +405,7 @@ fn test() {
 }
 
 #[test]
+#[cfg(feature = "hierarchy")]
 fn test_hierarchy() {
     use std::fs::*;
 
