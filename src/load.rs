@@ -41,7 +41,9 @@ use bevy_app::{
     CoreSet, {App, AppTypeRegistry, Plugin},
 };
 use bevy_ecs::{entity::EntityMap, prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfig};
-use bevy_hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
+use bevy_hierarchy::DespawnRecursiveExt;
+#[cfg(feature = "hierarchy")]
+use bevy_hierarchy::{BuildChildren, Parent};
 use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
 use bevy_utils::{
     tracing::{error, info},
