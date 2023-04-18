@@ -12,12 +12,15 @@ repository = "https://github.com/Zeenobit/moonshine_save"
 [dependencies]
 ron = "0.8.0"
 serde = "1.0.*"
-bevy_app = "0.10.0"
-bevy_ecs = "0.10.0"
-bevy_hierarchy = "0.10.0"
-bevy_reflect = "0.10.0"
-bevy_scene = "0.10.0"
-bevy_utils = "0.10.0"
+bevy_app = "0.10.*"
+bevy_ecs = "0.10.*"
+bevy_hierarchy = "0.10.*"
+bevy_reflect = "0.10.*"
+bevy_scene = "0.10.*"
+bevy_utils = "0.10.*"
 
 [dev-dependencies]
-bevy = "0.10.0"
+bevy = "0.10.1"
+
+[features]
+hierarchy = []
