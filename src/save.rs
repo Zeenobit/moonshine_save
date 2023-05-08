@@ -24,10 +24,14 @@
 //! ```
 
 pub use std::io::Error as WriteError;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bevy_app::{App, AppTypeRegistry, CoreSet, Plugin};
-use bevy_ecs::{prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfig};
+use bevy_ecs::{
+    prelude::*,
+    query::ReadOnlyWorldQuery,
+    schedule::{SystemConfig, SystemConfigs},
+};
 use bevy_scene::{DynamicScene, DynamicSceneBuilder};
 use bevy_utils::tracing::{error, info};
 pub use ron::Error as SerializeError;
@@ -135,6 +139,16 @@ pub fn into_file(
     }
 }
 
+pub fn into_file_dyn(
+    In((path, saved)): In<(PathBuf, Saved)>,
+    type_registry: Res<AppTypeRegistry>,
+) -> Result<Saved, Error> {
+    let data = saved.scene.serialize_ron(&type_registry)?;
+    std::fs::write(&path, data.as_bytes())?;
+    info!("saved into file: {path:?}");
+    Ok(saved)
+}
+
 /// A [`System`] which finishes the save process.
 pub fn finish(In(result): In<Result<Saved, Error>>, world: &mut World) {
     match result {
@@ -151,8 +165,40 @@ fn remove_saved(world: &mut World) {
     world.remove_resource::<Saved>().unwrap();
 }
 
+pub trait SaveIntoFileRequest: Resource {
+    fn path(&self) -> &Path;
+}
+
+fn has_resource<R: Resource>(resource: Option<Res<R>>) -> bool {
+    resource.is_some()
+}
+
+fn remove_resource<R: Resource>(mut commands: Commands) {
+    commands.remove_resource::<R>();
+}
+
+pub fn save_into_file_on_request<R: SaveIntoFileRequest>() -> SystemConfigs {
+    (
+        save::<With<Save>>
+            .pipe(file_from_request::<R>)
+            .pipe(into_file_dyn)
+            .pipe(finish),
+        remove_resource::<R>,
+    )
+        .in_set(SaveSet::Save)
+        .distributive_run_if(has_resource::<R>)
+}
+
+pub fn file_from_request<R: SaveIntoFileRequest>(
+    In(saved): In<Saved>,
+    request: Res<R>,
+) -> (PathBuf, Saved) {
+    let path = request.path().to_owned();
+    (path, saved)
+}
+
 #[test]
-fn test() {
+fn test_save_into_file() {
     use std::fs::*;
 
     use bevy::prelude::*;
@@ -167,6 +213,42 @@ fn test() {
         .register_type::<Dummy>()
         .add_system(save_into_file(PATH));
 
+    app.world.spawn((Dummy, Save));
+    app.update();
+
+    let data = read_to_string(PATH).unwrap();
+    assert!(data.contains("Dummy"));
+
+    remove_file(PATH).unwrap();
+}
+
+#[test]
+fn test_save_into_file_on_request() {
+    use std::fs::*;
+
+    use bevy::prelude::*;
+
+    #[derive(Component, Default, Reflect)]
+    #[reflect(Component)]
+    struct Dummy;
+
+    pub const PATH: &str = "test_save_dyn.ron";
+
+    #[derive(Resource)]
+    struct SaveRequest;
+
+    impl SaveIntoFileRequest for SaveRequest {
+        fn path(&self) -> &Path {
+            PATH.as_ref()
+        }
+    }
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .register_type::<Dummy>()
+        .add_systems(save_into_file_on_request::<SaveRequest>());
+
+    app.world.insert_resource(SaveRequest);
     app.world.spawn((Dummy, Save));
     app.update();
 
