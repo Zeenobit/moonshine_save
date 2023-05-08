@@ -167,7 +167,7 @@ struct SaveRequest {
 
 impl SaveIntoFileRequest for SaveRequest {
     fn path(&self) -> &Path {
-        path.as_ref()
+        self.path.as_ref()
     }
 }
 
@@ -179,7 +179,7 @@ struct LoadRequest {
 
 impl LoadFromFileRequest for LoadRequest {
     fn path(&self) -> &Path {
-        path.as_ref()
+        self.path.as_ref()
     }
 }
 ```

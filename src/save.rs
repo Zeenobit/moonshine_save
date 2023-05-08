@@ -170,13 +170,26 @@ pub trait SaveIntoFileRequest: Resource {
 /// Unlike [`save_into_file`], you should not use this in conjunction with `.run_if`.
 /// This pipeline is only executed when the request is present.
 /// ```
+/// # use std::path::{Path, PathBuf};
+///
 /// # use bevy::prelude::*;
 /// # use moonshine_save::prelude::*;
+///
+/// #[derive(Resource)]
+/// struct SaveRequest {
+///     pub path: PathBuf,
+/// }
+///
+/// impl SaveIntoFileRequest for SaveRequest {
+///     fn path(&self) -> &Path {
+///         self.path.as_ref()
+///     }
+/// }
 ///
 /// let mut app = App::new();
 /// app.add_plugins(MinimalPlugins)
 ///     .add_plugin(SavePlugin)
-///     .add_systems(save_into_file_on_request());
+///     .add_systems(save_into_file_on_request::<SaveRequest>());
 /// ```
 pub fn save_into_file_on_request<R: SaveIntoFileRequest>() -> SystemConfigs {
     (
