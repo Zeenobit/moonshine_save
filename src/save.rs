@@ -199,6 +199,7 @@ pub fn save_into_file_on_request<R: SaveIntoFileRequest>() -> SystemConfigs {
             .pipe(finish),
         remove_resource::<R>,
     )
+        .chain()
         .in_set(SaveSet::Save)
         .distributive_run_if(has_resource::<R>)
 }

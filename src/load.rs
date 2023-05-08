@@ -340,10 +340,10 @@ pub fn load_from_file_on_request<R: LoadFromFileRequest>() -> SystemConfigs {
             .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
             .pipe(load)
             .pipe(insert_into_loaded(Save))
-            .pipe(finish)
-            .in_set(LoadSet::Load),
+            .pipe(finish),
         remove_resource::<R>,
     )
+        .chain()
         .in_set(LoadSet::Load)
         .distributive_run_if(has_resource::<R>)
 }
