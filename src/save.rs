@@ -46,13 +46,13 @@ impl Plugin for SavePlugin {
         app.configure_sets(
             (
                 SaveSet::Save,
-                SaveSet::PostSave.run_if(is_saved),
-                SaveSet::Flush.run_if(is_saved),
+                SaveSet::PostSave.run_if(has_resource::<Saved>),
+                SaveSet::Flush.run_if(has_resource::<Saved>),
             )
                 .chain()
                 .after(CoreSet::FirstFlush),
         )
-        .add_systems((remove_saved, apply_system_buffers).in_set(SaveSet::Flush));
+        .add_systems((remove_resource::<Saved>, apply_system_buffers).in_set(SaveSet::Flush));
     }
 }
 
@@ -157,14 +157,6 @@ pub fn finish(In(result): In<Result<Saved, Error>>, world: &mut World) {
         Ok(saved) => world.insert_resource(saved),
         Err(why) => error!("save failed: {why:?}"),
     }
-}
-
-fn is_saved(saved: Option<Res<Saved>>) -> bool {
-    saved.is_some()
-}
-
-fn remove_saved(world: &mut World) {
-    world.remove_resource::<Saved>().unwrap();
 }
 
 pub trait SaveIntoFileRequest: Resource {
