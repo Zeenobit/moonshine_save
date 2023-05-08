@@ -306,6 +306,21 @@ pub trait LoadFromFileRequest: Resource {
     fn path(&self) -> &Path;
 }
 
+/// A load pipeline ([`SystemConfigs`]) which works similarly to [`load_from_file`],
+/// but uses a [`LoadFromFileRequest`] request to get the path.
+///
+/// # Usage
+/// Unlike [`load_from_file`], you should not use this in conjunction with `.run_if`.
+/// This pipeline is only executed when the request is present.
+/// ```
+/// # use bevy::prelude::*;
+/// # use moonshine_save::prelude::*;
+///
+/// let mut app = App::new();
+/// app.add_plugins(MinimalPlugins)
+///     .add_plugin(LoadPlugin)
+///     .add_systems(load_from_file_on_request());
+/// ```
 pub fn load_from_file_on_request<R: LoadFromFileRequest>() -> SystemConfigs {
     (
         file_from_request::<R>
