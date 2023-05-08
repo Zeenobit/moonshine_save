@@ -53,7 +53,10 @@ pub use ron::de::SpannedError as ParseError;
 pub use ron::Error as DeserializeError;
 use serde::de::DeserializeSeed;
 
-use crate::save::{Save, SaveSet, Saved};
+use crate::{
+    save::{Save, SaveSet, Saved},
+    utils::{has_resource, remove_resource},
+};
 
 /// A [`Plugin`] which configures [`LoadSet`] and adds systems to support loading [`Saved`] data.
 pub struct LoadPlugin;
@@ -63,14 +66,14 @@ impl Plugin for LoadPlugin {
         app.configure_sets(
             (
                 LoadSet::Load,
-                LoadSet::PostLoad.run_if(is_loaded),
-                LoadSet::Flush.run_if(is_loaded),
+                LoadSet::PostLoad.run_if(has_resource::<Loaded>),
+                LoadSet::Flush.run_if(has_resource::<Loaded>),
             )
                 .chain()
                 .after(CoreSet::FirstFlush)
                 .before(SaveSet::Save),
         )
-        .add_systems((remove_loaded, apply_system_buffers).in_set(LoadSet::Flush));
+        .add_systems((remove_resource::<Loaded>, apply_system_buffers).in_set(LoadSet::Flush));
 
         #[cfg(feature = "hierarchy")]
         app.add_system(hierarchy_from_loaded.in_set(LoadSet::PostLoad));
@@ -277,14 +280,6 @@ pub fn finish(In(result): In<Result<Loaded, Error>>, world: &mut World) {
         Ok(loaded) => world.insert_resource(loaded),
         Err(why) => error!("load failed: {why:?}"),
     }
-}
-
-fn is_loaded(loaded: Option<Res<Loaded>>) -> bool {
-    loaded.is_some()
-}
-
-fn remove_loaded(world: &mut World) {
-    world.remove_resource::<Loaded>().unwrap();
 }
 
 /// A trait used by types which reference entities to update themselves from [`Loaded`] data during [`LoadSet::PostLoad`].
