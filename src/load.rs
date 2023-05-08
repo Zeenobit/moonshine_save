@@ -35,12 +35,17 @@
 //! ```
 
 pub use std::io::Error as ReadError;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bevy_app::{
     CoreSet, {App, AppTypeRegistry, Plugin},
 };
-use bevy_ecs::{entity::EntityMap, prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfig};
+use bevy_ecs::{
+    entity::EntityMap,
+    prelude::*,
+    query::ReadOnlyWorldQuery,
+    schedule::{SystemConfig, SystemConfigs},
+};
 use bevy_hierarchy::DespawnRecursiveExt;
 #[cfg(feature = "hierarchy")]
 use bevy_hierarchy::{BuildChildren, Parent};
@@ -230,6 +235,21 @@ pub fn from_file(
     }
 }
 
+pub fn from_file_dyn(
+    In(path): In<PathBuf>,
+    type_registry: Res<AppTypeRegistry>,
+) -> Result<Saved, Error> {
+    let input = std::fs::read(&path)?;
+    let mut deserializer = ron::Deserializer::from_bytes(&input)?;
+    let scene = {
+        let type_registry = &type_registry.read();
+        let scene_deserializer = SceneDeserializer { type_registry };
+        scene_deserializer.deserialize(&mut deserializer)?
+    };
+    info!("loaded from file: {path:?}");
+    Ok(Saved { scene })
+}
+
 /// A [`System`] which unloads all entities that match the given `Filter` during load.
 pub fn unload<Filter: ReadOnlyWorldQuery>(
     In(result): In<Result<Saved, Error>>,
@@ -280,6 +300,29 @@ pub fn finish(In(result): In<Result<Loaded, Error>>, world: &mut World) {
         Ok(loaded) => world.insert_resource(loaded),
         Err(why) => error!("load failed: {why:?}"),
     }
+}
+
+pub trait LoadFromFileRequest: Resource {
+    fn path(&self) -> &Path;
+}
+
+pub fn load_from_file_on_request<R: LoadFromFileRequest>() -> SystemConfigs {
+    (
+        file_from_request::<R>
+            .pipe(from_file_dyn)
+            .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
+            .pipe(load)
+            .pipe(insert_into_loaded(Save))
+            .pipe(finish)
+            .in_set(LoadSet::Load),
+        remove_resource::<R>,
+    )
+        .in_set(LoadSet::Load)
+        .distributive_run_if(has_resource::<R>)
+}
+
+pub fn file_from_request<R: LoadFromFileRequest>(request: Res<R>) -> PathBuf {
+    request.path().to_owned()
 }
 
 /// A trait used by types which reference entities to update themselves from [`Loaded`] data during [`LoadSet::PostLoad`].
@@ -362,8 +405,11 @@ pub fn hierarchy_from_loaded(
     }
 }
 
+#[cfg(test)]
+mod tests {}
+
 #[test]
-fn test() {
+fn test_load_from_file() {
     use std::fs::*;
 
     use bevy::prelude::*;
@@ -373,7 +419,7 @@ fn test() {
         entities: {
             0: (
                 components: {
-                    \"moonshine_save::load::test::Dummy\": (),
+                    \"moonshine_save::load::test_load_from_file::Dummy\": (),
                 },
             ),
         },
@@ -390,6 +436,57 @@ fn test() {
         .register_type::<Dummy>()
         .add_system(load_from_file(PATH));
 
+    app.update();
+
+    assert!(app
+        .world
+        .query::<With<Dummy>>()
+        .get_single(&app.world)
+        .is_ok());
+
+    remove_file(PATH).unwrap();
+}
+
+#[test]
+fn test_load_from_file_on_request() {
+    use std::fs::*;
+
+    use bevy::prelude::*;
+
+    use crate::load::{load_from_file_on_request, LoadFromFileRequest};
+
+    pub const PATH: &str = "test_load_on_request_dyn.ron";
+    pub const DATA: &str = "(
+        entities: {
+            0: (
+                components: {
+                    \"moonshine_save::load::test_load_from_file_on_request::Dummy\": (),
+                },
+            ),
+        },
+    )";
+
+    write(PATH, DATA).unwrap();
+
+    #[derive(Component, Default, Reflect)]
+    #[reflect(Component)]
+    struct Dummy;
+
+    #[derive(Resource)]
+    struct LoadRequest;
+
+    impl LoadFromFileRequest for LoadRequest {
+        fn path(&self) -> &Path {
+            Path::new(PATH)
+        }
+    }
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .register_type::<Dummy>()
+        .add_systems(load_from_file_on_request::<LoadRequest>());
+
+    app.world.insert_resource(LoadRequest);
     app.update();
 
     assert!(app
