@@ -36,6 +36,8 @@ use bevy_scene::{DynamicScene, DynamicSceneBuilder};
 use bevy_utils::tracing::{error, info};
 pub use ron::Error as SerializeError;
 
+use crate::utils::{has_resource, remove_resource};
+
 /// A [`Plugin`] which configures [`SaveSet`] and adds systems to support saving.
 pub struct SavePlugin;
 
@@ -167,14 +169,6 @@ fn remove_saved(world: &mut World) {
 
 pub trait SaveIntoFileRequest: Resource {
     fn path(&self) -> &Path;
-}
-
-fn has_resource<R: Resource>(resource: Option<Res<R>>) -> bool {
-    resource.is_some()
-}
-
-fn remove_resource<R: Resource>(mut commands: Commands) {
-    commands.remove_resource::<R>();
 }
 
 pub fn save_into_file_on_request<R: SaveIntoFileRequest>() -> SystemConfigs {
