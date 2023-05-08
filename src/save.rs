@@ -163,6 +163,21 @@ pub trait SaveIntoFileRequest: Resource {
     fn path(&self) -> &Path;
 }
 
+/// A save pipeline ([`SystemConfigs`]) which works similarly to [`save_into_file`],
+/// but uses a [`SaveIntoFileRequest`] request to get the path.
+///
+/// # Usage
+/// Unlike [`save_into_file`], you should not use this in conjunction with `.run_if`.
+/// This pipeline is only executed when the request is present.
+/// ```
+/// # use bevy::prelude::*;
+/// # use moonshine_save::prelude::*;
+///
+/// let mut app = App::new();
+/// app.add_plugins(MinimalPlugins)
+///     .add_plugin(SavePlugin)
+///     .add_systems(save_into_file_on_request());
+/// ```
 pub fn save_into_file_on_request<R: SaveIntoFileRequest>() -> SystemConfigs {
     (
         save::<With<Save>>
