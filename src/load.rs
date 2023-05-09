@@ -302,7 +302,7 @@ pub fn finish(In(result): In<Result<Loaded, Error>>, world: &mut World) {
     }
 }
 
-pub trait LoadFromFileRequest: Resource {
+pub trait LoadFromFileRequest {
     fn path(&self) -> &Path;
 }
 
@@ -333,7 +333,10 @@ pub trait LoadFromFileRequest: Resource {
 ///     .add_plugin(LoadPlugin)
 ///     .add_systems(load_from_file_on_request::<LoadRequest>());
 /// ```
-pub fn load_from_file_on_request<R: LoadFromFileRequest>() -> SystemConfigs {
+pub fn load_from_file_on_request<R>() -> SystemConfigs
+where
+    R: LoadFromFileRequest + Resource,
+{
     (
         file_from_request::<R>
             .pipe(from_file_dyn)
@@ -348,7 +351,10 @@ pub fn load_from_file_on_request<R: LoadFromFileRequest>() -> SystemConfigs {
         .distributive_run_if(has_resource::<R>)
 }
 
-pub fn file_from_request<R: LoadFromFileRequest>(request: Res<R>) -> PathBuf {
+pub fn file_from_request<R>(request: Res<R>) -> PathBuf
+where
+    R: LoadFromFileRequest + Resource,
+{
     request.path().to_owned()
 }
 

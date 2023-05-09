@@ -159,7 +159,7 @@ pub fn finish(In(result): In<Result<Saved, Error>>, world: &mut World) {
     }
 }
 
-pub trait SaveIntoFileRequest: Resource {
+pub trait SaveIntoFileRequest {
     fn path(&self) -> &Path;
 }
 
@@ -191,7 +191,10 @@ pub trait SaveIntoFileRequest: Resource {
 ///     .add_plugin(SavePlugin)
 ///     .add_systems(save_into_file_on_request::<SaveRequest>());
 /// ```
-pub fn save_into_file_on_request<R: SaveIntoFileRequest>() -> SystemConfigs {
+pub fn save_into_file_on_request<R>() -> SystemConfigs
+where
+    R: SaveIntoFileRequest + Resource,
+{
     (
         save::<With<Save>>
             .pipe(file_from_request::<R>)
@@ -204,10 +207,10 @@ pub fn save_into_file_on_request<R: SaveIntoFileRequest>() -> SystemConfigs {
         .distributive_run_if(has_resource::<R>)
 }
 
-pub fn file_from_request<R: SaveIntoFileRequest>(
-    In(saved): In<Saved>,
-    request: Res<R>,
-) -> (PathBuf, Saved) {
+pub fn file_from_request<R>(In(saved): In<Saved>, request: Res<R>) -> (PathBuf, Saved)
+where
+    R: SaveIntoFileRequest + Resource,
+{
     let path = request.path().to_owned();
     (path, saved)
 }
