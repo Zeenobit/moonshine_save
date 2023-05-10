@@ -156,7 +156,7 @@ Ideally, your saved game data should be completely separate from the aesthetic e
 
 In the examples provided, the save file path is often static (i.e. known at compile time). However, in some applications, it may be necessary to save into a path selected at runtime.
 
-You may use the provided `SaveIntoFileRequest` and `LoadFromFileRequest` traits to achieve this. These traits require you to implement a `Resource` type which returns the save/load file path:
+You may use the provided `SaveIntoFileRequest` and `LoadFromFileRequest` traits to achieve this. Your save/load request may either be a `Resource` or an `Event`.
 
 ```rust,ignore
 // Save request with a dynamic path
@@ -194,6 +194,21 @@ Then, you can invoke a save by inserting the request as a resource:
 
 ```rust,ignore
 commands.insert_resource(SaveRequest { path: "saved.ron".into() });
+```
+
+To use an `Event` for save/load requests, you may use `save_into_file_on_event` and `load_from_file_on_event` save pipelines instead:
+
+```rust,ignore
+app.add_event(SaveRequest)
+    .add_systems(save_into_file_on_event::<SaveRequest>());
+```
+
+Then, you can invoke a save by sending the request as an event:
+
+```rust,ignore
+fn save(mut events: EventWriter<SaveRequest>) {
+    events.send(SaveRequest { path: "saved.ron".into() });
+}
 ```
 
 ## Configuration
