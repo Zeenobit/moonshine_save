@@ -33,10 +33,10 @@ use bevy_ecs::{
     schedule::{SystemConfig, SystemConfigs},
 };
 use bevy_scene::{DynamicScene, DynamicSceneBuilder};
-use bevy_utils::tracing::{error, info};
+use bevy_utils::tracing::{error, info, warn};
 pub use ron::Error as SerializeError;
 
-use crate::utils::{has_resource, remove_resource};
+use crate::utils::{has_event, has_resource, remove_resource};
 
 /// A [`Plugin`] which configures [`SaveSet`] and adds systems to support saving.
 pub struct SavePlugin;
@@ -207,11 +207,41 @@ where
         .distributive_run_if(has_resource::<R>)
 }
 
+/// A save pipeline ([`SystemConfigs`]) which works similarly to [`save_into_file_on_request`],
+/// except it uses an [`Event`] to get the path.
+///
+/// Note: If multiple events are sent in a single update cycle, only the first one is processed.
+pub fn save_into_file_on_event<R>() -> SystemConfigs
+where
+    R: SaveIntoFileRequest + Send + Sync + 'static,
+{
+    // Note: This is a single system, but still returned as `SystemConfigs` for easier refactoring.
+    (save::<With<Save>>
+        .pipe(file_from_event::<R>)
+        .pipe(into_file_dyn)
+        .pipe(finish),)
+        .distributive_run_if(has_event::<R>)
+        .in_set(SaveSet::Save)
+}
+
 pub fn file_from_request<R>(In(saved): In<Saved>, request: Res<R>) -> (PathBuf, Saved)
 where
     R: SaveIntoFileRequest + Resource,
 {
     let path = request.path().to_owned();
+    (path, saved)
+}
+
+pub fn file_from_event<R>(In(saved): In<Saved>, mut events: EventReader<R>) -> (PathBuf, Saved)
+where
+    R: SaveIntoFileRequest + Send + Sync + 'static,
+{
+    let mut iter = events.iter();
+    let event = iter.next().unwrap();
+    if iter.next().is_some() {
+        warn!("multiple save request events received; only the first one is processed.");
+    }
+    let path = event.path().to_owned();
     (path, saved)
 }
 
@@ -267,6 +297,42 @@ fn test_save_into_file_on_request() {
         .add_systems(save_into_file_on_request::<SaveRequest>());
 
     app.world.insert_resource(SaveRequest);
+    app.world.spawn((Dummy, Save));
+    app.update();
+
+    let data = read_to_string(PATH).unwrap();
+    assert!(data.contains("Dummy"));
+
+    remove_file(PATH).unwrap();
+}
+
+#[test]
+fn test_save_into_file_on_event() {
+    use std::fs::*;
+
+    use bevy::prelude::*;
+
+    #[derive(Component, Default, Reflect)]
+    #[reflect(Component)]
+    struct Dummy;
+
+    pub const PATH: &str = "test_save_event.ron";
+
+    struct SaveRequest;
+
+    impl SaveIntoFileRequest for SaveRequest {
+        fn path(&self) -> &Path {
+            PATH.as_ref()
+        }
+    }
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .register_type::<Dummy>()
+        .add_event::<SaveRequest>()
+        .add_systems(save_into_file_on_event::<SaveRequest>());
+
+    app.world.send_event(SaveRequest);
     app.world.spawn((Dummy, Save));
     app.update();
 
