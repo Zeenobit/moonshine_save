@@ -51,7 +51,7 @@ use bevy_hierarchy::DespawnRecursiveExt;
 use bevy_hierarchy::{BuildChildren, Parent};
 use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
 use bevy_utils::{
-    tracing::{error, info},
+    tracing::{error, info, warn},
     HashMap,
 };
 pub use ron::de::SpannedError as ParseError;
@@ -60,7 +60,7 @@ use serde::de::DeserializeSeed;
 
 use crate::{
     save::{Save, SaveSet, Saved},
-    utils::{has_resource, remove_resource},
+    utils::{has_event, has_resource, remove_resource},
 };
 
 /// A [`Plugin`] which configures [`LoadSet`] and adds systems to support loading [`Saved`] data.
@@ -351,11 +351,42 @@ where
         .distributive_run_if(has_resource::<R>)
 }
 
+/// A save pipeline ([`SystemConfigs`]) which works similarly to [`load_from_file_on_request`],
+/// except it uses an [`Event`] to get the path.
+///
+/// Note: If multiple events are sent in a single update cycle, only the first one is processed.
+pub fn load_from_file_on_event<R>() -> SystemConfigs
+where
+    R: LoadFromFileRequest + Send + Sync + 'static,
+{
+    (file_from_event::<R>
+        .pipe(from_file_dyn)
+        .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
+        .pipe(load)
+        .pipe(insert_into_loaded(Save))
+        .pipe(finish),)
+        .chain()
+        .in_set(LoadSet::Load)
+        .distributive_run_if(has_event::<R>)
+}
+
 pub fn file_from_request<R>(request: Res<R>) -> PathBuf
 where
     R: LoadFromFileRequest + Resource,
 {
     request.path().to_owned()
+}
+
+pub fn file_from_event<R>(mut events: EventReader<R>) -> PathBuf
+where
+    R: LoadFromFileRequest + Send + Sync + 'static,
+{
+    let mut iter = events.iter();
+    let event = iter.next().unwrap();
+    if iter.next().is_some() {
+        warn!("multiple load request events received; only the first one is processed.");
+    }
+    event.path().to_owned()
 }
 
 /// A trait used by types which reference entities to update themselves from [`Loaded`] data during [`LoadSet::PostLoad`].
@@ -439,156 +470,172 @@ pub fn hierarchy_from_loaded(
 }
 
 #[cfg(test)]
-mod tests {}
-
-#[test]
-fn test_load_from_file() {
+mod tests {
     use std::fs::*;
 
     use bevy::prelude::*;
 
-    pub const PATH: &str = "test_load.ron";
+    use super::*;
+
     pub const DATA: &str = "(
         entities: {
             0: (
                 components: {
-                    \"moonshine_save::load::test_load_from_file::Dummy\": (),
+                    \"moonshine_save::load::tests::Dummy\": (),
                 },
             ),
         },
     )";
 
-    write(PATH, DATA).unwrap();
-
     #[derive(Component, Default, Reflect)]
     #[reflect(Component)]
     struct Dummy;
 
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
-        .register_type::<Dummy>()
-        .add_system(load_from_file(PATH));
+    #[test]
+    fn test_load_from_file() {
+        pub const PATH: &str = "test_load.ron";
 
-    app.update();
+        write(PATH, DATA).unwrap();
 
-    assert!(app
-        .world
-        .query::<With<Dummy>>()
-        .get_single(&app.world)
-        .is_ok());
-
-    remove_file(PATH).unwrap();
-}
-
-#[test]
-fn test_load_from_file_on_request() {
-    use std::fs::*;
-
-    use bevy::prelude::*;
-
-    use crate::load::{load_from_file_on_request, LoadFromFileRequest};
-
-    pub const PATH: &str = "test_load_on_request_dyn.ron";
-    pub const DATA: &str = "(
-        entities: {
-            0: (
-                components: {
-                    \"moonshine_save::load::test_load_from_file_on_request::Dummy\": (),
-                },
-            ),
-        },
-    )";
-
-    write(PATH, DATA).unwrap();
-
-    #[derive(Component, Default, Reflect)]
-    #[reflect(Component)]
-    struct Dummy;
-
-    #[derive(Resource)]
-    struct LoadRequest;
-
-    impl LoadFromFileRequest for LoadRequest {
-        fn path(&self) -> &Path {
-            Path::new(PATH)
-        }
-    }
-
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
-        .register_type::<Dummy>()
-        .add_systems(load_from_file_on_request::<LoadRequest>());
-
-    app.world.insert_resource(LoadRequest);
-    app.update();
-
-    assert!(app
-        .world
-        .query::<With<Dummy>>()
-        .get_single(&app.world)
-        .is_ok());
-
-    remove_file(PATH).unwrap();
-}
-
-#[test]
-#[cfg(feature = "hierarchy")]
-fn test_hierarchy() {
-    use std::fs::*;
-
-    use bevy::prelude::*;
-
-    use crate::save::{save_into_file, SavePlugin};
-
-    pub const PATH: &str = "test_load_hierarchy.ron";
-
-    {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .add_plugin(HierarchyPlugin)
-            .add_plugin(SavePlugin)
-            .add_system(save_into_file(PATH));
-
-        let entity = app
-            .world
-            .spawn(Save)
-            .with_children(|parent| {
-                parent.spawn(Save);
-                parent.spawn(Save);
-            })
-            .id();
-
-        app.update();
-
-        let world = app.world;
-        let children = world.get::<Children>(entity).unwrap();
-        assert_eq!(children.iter().count(), 2);
-        for child in children.iter() {
-            let parent = world.get::<Parent>(*child).unwrap().get();
-            assert_eq!(parent, entity);
-        }
-    }
-
-    {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
-            .add_plugin(HierarchyPlugin)
-            .add_plugin(LoadPlugin)
+            .register_type::<Dummy>()
             .add_system(load_from_file(PATH));
 
-        // Spawn an entity to offset indices
-        app.world.spawn_empty();
-
         app.update();
 
-        let mut world = app.world;
-        let (entity, children) = world.query::<(Entity, &Children)>().single(&world);
-        assert_eq!(children.iter().count(), 2);
-        for child in children.iter() {
-            let parent = world.get::<Parent>(*child).unwrap().get();
-            assert_eq!(parent, entity);
-        }
+        assert!(app
+            .world
+            .query::<With<Dummy>>()
+            .get_single(&app.world)
+            .is_ok());
+
+        remove_file(PATH).unwrap();
     }
 
-    remove_file(PATH).unwrap();
+    #[test]
+    fn test_load_from_file_on_request() {
+        pub const PATH: &str = "test_load_on_request_dyn.ron";
+
+        write(PATH, DATA).unwrap();
+
+        #[derive(Resource)]
+        struct LoadRequest;
+
+        impl LoadFromFileRequest for LoadRequest {
+            fn path(&self) -> &Path {
+                Path::new(PATH)
+            }
+        }
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .register_type::<Dummy>()
+            .add_systems(load_from_file_on_request::<LoadRequest>());
+
+        app.world.insert_resource(LoadRequest);
+        app.update();
+
+        assert!(app
+            .world
+            .query::<With<Dummy>>()
+            .get_single(&app.world)
+            .is_ok());
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_load_from_file_on_event() {
+        pub const PATH: &str = "test_load_on_request_event.ron";
+
+        write(PATH, DATA).unwrap();
+
+        struct LoadRequest;
+
+        impl LoadFromFileRequest for LoadRequest {
+            fn path(&self) -> &Path {
+                Path::new(PATH)
+            }
+        }
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .register_type::<Dummy>()
+            .add_event::<LoadRequest>()
+            .add_systems(load_from_file_on_event::<LoadRequest>());
+
+        app.world.send_event(LoadRequest);
+        app.update();
+
+        assert!(app
+            .world
+            .query::<With<Dummy>>()
+            .get_single(&app.world)
+            .is_ok());
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "hierarchy")]
+    fn test_hierarchy() {
+        use std::fs::*;
+
+        use bevy::prelude::*;
+
+        use crate::save::{save_into_file, SavePlugin};
+
+        pub const PATH: &str = "test_load_hierarchy.ron";
+
+        {
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_plugin(HierarchyPlugin)
+                .add_plugin(SavePlugin)
+                .add_system(save_into_file(PATH));
+
+            let entity = app
+                .world
+                .spawn(Save)
+                .with_children(|parent| {
+                    parent.spawn(Save);
+                    parent.spawn(Save);
+                })
+                .id();
+
+            app.update();
+
+            let world = app.world;
+            let children = world.get::<Children>(entity).unwrap();
+            assert_eq!(children.iter().count(), 2);
+            for child in children.iter() {
+                let parent = world.get::<Parent>(*child).unwrap().get();
+                assert_eq!(parent, entity);
+            }
+        }
+
+        {
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_plugin(HierarchyPlugin)
+                .add_plugin(LoadPlugin)
+                .add_system(load_from_file(PATH));
+
+            // Spawn an entity to offset indices
+            app.world.spawn_empty();
+
+            app.update();
+
+            let mut world = app.world;
+            let (entity, children) = world.query::<(Entity, &Children)>().single(&world);
+            assert_eq!(children.iter().count(), 2);
+            for child in children.iter() {
+                let parent = world.get::<Parent>(*child).unwrap().get();
+                assert_eq!(parent, entity);
+            }
+        }
+
+        remove_file(PATH).unwrap();
+    }
 }
