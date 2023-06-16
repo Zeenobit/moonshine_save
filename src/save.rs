@@ -32,6 +32,7 @@ use bevy_ecs::{
     query::ReadOnlyWorldQuery,
     schedule::{SystemConfig, SystemConfigs},
 };
+use bevy_reflect::Reflect;
 use bevy_scene::{DynamicScene, DynamicSceneBuilder};
 use bevy_utils::tracing::{error, info, warn};
 pub use ron::Error as SerializeError;
@@ -115,10 +116,10 @@ impl From<WriteError> for Error {
 /// ```
 pub fn save_into_file(path: impl Into<PathBuf>) -> SystemConfig {
     let path = path.into();
-    save::<With<Save>>
-        .pipe(into_file(path))
-        .pipe(finish)
-        .in_set(SaveSet::Save)
+    let s = save::<With<Save>>;
+    #[cfg(feature = "hierarchy")]
+    let s = s.pipe(forget_component::<bevy_hierarchy::Children>);
+    s.pipe(into_file(path)).pipe(finish).in_set(SaveSet::Save)
 }
 
 /// A [`System`] which creates [`Saved`] data from all entities with given `Filter`.
@@ -127,6 +128,17 @@ pub fn save<Filter: ReadOnlyWorldQuery>(world: &World, query: Query<Entity, Filt
     scene_builder.extract_entities(query.iter());
     let scene = scene_builder.build();
     Saved { scene }
+}
+
+/// A [`System`] which removes a given component from [`Saved`] data.
+pub fn forget_component<T: Component + Reflect>(In(mut saved): In<Saved>) -> Saved {
+    for entity in saved.scene.entities.iter_mut() {
+        // TODO: Checking components by type ID doesn't seem to work. I don't know why. Possible bug in Bevy reflect.
+        entity
+            .components
+            .retain(|component| component.type_name() != std::any::type_name::<T>());
+    }
+    saved
 }
 
 /// A [`System`] which writes [`Saved`] data into a file at given `path`.
@@ -196,10 +208,14 @@ where
     R: SaveIntoFileRequest + Resource,
 {
     (
-        save::<With<Save>>
-            .pipe(file_from_request::<R>)
-            .pipe(into_file_dyn)
-            .pipe(finish),
+        {
+            let s = save::<With<Save>>;
+            #[cfg(feature = "hierarchy")]
+            let s = s.pipe(forget_component::<bevy_hierarchy::Children>);
+            s.pipe(file_from_request::<R>)
+                .pipe(into_file_dyn)
+                .pipe(finish)
+        },
         remove_resource::<R>,
     )
         .chain()
@@ -216,10 +232,14 @@ where
     R: SaveIntoFileRequest + Send + Sync + 'static,
 {
     // Note: This is a single system, but still returned as `SystemConfigs` for easier refactoring.
-    (save::<With<Save>>
-        .pipe(file_from_event::<R>)
-        .pipe(into_file_dyn)
-        .pipe(finish),)
+    ({
+        let s = save::<With<Save>>;
+        #[cfg(feature = "hierarchy")]
+        let s = s.pipe(forget_component::<bevy_hierarchy::Children>);
+        s.pipe(file_from_event::<R>)
+            .pipe(into_file_dyn)
+            .pipe(finish)
+    },)
         .distributive_run_if(has_event::<R>)
         .in_set(SaveSet::Save)
 }

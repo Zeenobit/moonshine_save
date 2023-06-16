@@ -616,6 +616,13 @@ mod tests {
         }
 
         {
+            // Hierarchy should not contain children
+            let data = std::fs::read_to_string(PATH).unwrap();
+            assert!(data.contains("Parent"));
+            assert!(!data.contains("Children"));
+        }
+
+        {
             let mut app = App::new();
             app.add_plugins(MinimalPlugins)
                 .add_plugin(HierarchyPlugin)
