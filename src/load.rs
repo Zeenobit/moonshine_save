@@ -81,7 +81,7 @@ impl Plugin for LoadPlugin {
         .add_systems((remove_resource::<Loaded>, apply_system_buffers).in_set(LoadSet::Flush));
 
         #[cfg(feature = "hierarchy")]
-        app.add_system(hierarchy_from_loaded.in_set(LoadSet::PostLoad));
+        app.add_system(hierarchy_post_load.in_set(LoadSet::PostLoad));
     }
 }
 
@@ -458,14 +458,9 @@ pub fn component_from_loaded<T: Component + FromLoaded>() -> SystemConfig {
 }
 
 #[cfg(feature = "hierarchy")]
-pub fn hierarchy_from_loaded(
-    loaded: Res<Loaded>,
-    query: Query<(Entity, &Parent)>,
-    mut commands: Commands,
-) {
+pub fn hierarchy_post_load(query: Query<(Entity, &Parent)>, mut commands: Commands) {
     for (entity, old_parent) in &query {
-        let new_parent = loaded.entity(old_parent.get().index());
-        commands.entity(entity).set_parent(new_parent);
+        commands.entity(entity).set_parent(**old_parent);
     }
 }
 
