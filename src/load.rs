@@ -457,6 +457,57 @@ pub fn component_from_loaded<T: Component + FromLoaded>() -> SystemConfig {
     .in_set(LoadSet::PostLoad)
 }
 
+/// A utility [`SystemConfig`] which inserts a default [`Bundle`] of given type into all entities that
+/// match the given query filter `F` during [`LoadSet::PostLoad`].
+///
+/// This system is useful for initializing non-serializable components on saved entities.
+pub fn insert_default_after_load<F: ReadOnlyWorldQuery, T: Bundle + Default>() -> SystemConfig
+where
+    F: 'static + Send + Sync,
+{
+    (|query: Query<Entity, F>, mut commands: Commands| {
+        for entity in &query {
+            commands.entity(entity).insert(T::default());
+        }
+    })
+    .in_set(LoadSet::PostLoad)
+}
+
+/// A utility [`SystemConfig`] which inserts a clone of given [`Bundle`] into all entities that
+/// match the given query filter `F` during [`LoadSet::PostLoad`].
+///
+/// This system is useful for initializing non-serializable components on saved entities.
+pub fn insert_clone_after_load<F: ReadOnlyWorldQuery, T: Bundle + Clone>(bundle: T) -> SystemConfig
+where
+    F: 'static + Send + Sync,
+{
+    (move |query: Query<Entity, F>, mut commands: Commands| {
+        for entity in &query {
+            commands.entity(entity).insert(bundle.clone());
+        }
+    })
+    .in_set(LoadSet::PostLoad)
+}
+
+/// A utility [`SystemConfig`] which inserts a new [`Bundle`] of type `T` by calling a given function
+/// into all entities that match the given query filter `F` during [`LoadSet::PostLoad`].
+///
+/// This system is useful for initializing non-serializable components on saved entities.
+pub fn insert_after_load_with<F: ReadOnlyWorldQuery, T: Bundle, G: Fn() -> T>(
+    bundle: G,
+) -> SystemConfig
+where
+    F: 'static + Send + Sync,
+    G: 'static + Send + Sync,
+{
+    (move |query: Query<Entity, F>, mut commands: Commands| {
+        for entity in &query {
+            commands.entity(entity).insert(bundle());
+        }
+    })
+    .in_set(LoadSet::PostLoad)
+}
+
 #[cfg(feature = "hierarchy")]
 pub fn hierarchy_post_load(query: Query<(Entity, &Parent)>, mut commands: Commands) {
     for (entity, old_parent) in &query {
