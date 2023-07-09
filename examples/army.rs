@@ -14,25 +14,26 @@ fn main() {
     app.add_plugins(DefaultPlugins)
         // Save and Load plugins are independant.
         // Usually, both are needed:
-        .add_plugin(LoadPlugin)
-        .add_plugin(SavePlugin)
+        .add_plugins((SavePlugin, LoadPlugin))
         // Register game types for de/serialization:
         .register_type::<Soldier>()
         .register_type::<SoldierWeapon>()
         .register_type::<Option<Entity>>()
         .register_type::<WeaponKind>()
         // Add game systems:
-        .add_system(setup.on_startup())
-        .add_systems((update_text, update_buttons))
-        .add_systems((handle_add_melee, handle_add_ranged))
+        .add_systems(Startup, setup)
+        .add_systems(Update, (update_text, update_buttons))
+        .add_systems(Update, (handle_add_melee, handle_add_ranged))
         // Add save/load systems:
-        .add_systems((handle_load, handle_save))
+        .add_systems(Update, (handle_load, handle_save))
         .add_systems(
+            PreUpdate,
             (load_from_file(SAVE_PATH), remove_load_request)
                 .chain()
-                .distributive_run_if(should_load),
+                .run_if(should_load),
         )
         .add_systems(
+            PreUpdate,
             (save_into_file(SAVE_PATH), remove_save_request)
                 .chain()
                 .distributive_run_if(should_save),
@@ -42,7 +43,7 @@ fn main() {
         // To do this, a component may implement FromLoaded, and invoke it recursively
         // on its members.
         // If a component implements FromLoaded, it may be invoked automatically as such:
-        .add_system(component_from_loaded::<SoldierWeapon>())
+        .add_systems(PreUpdate, component_from_loaded::<SoldierWeapon>())
         .run();
 }
 
@@ -150,7 +151,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn(NodeBundle {
             style: Style {
-                size: Size::width(Val::Percent(100.0)),
+                width: Val::Percent(100.0),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 ..default()
@@ -179,7 +180,8 @@ fn spawn_button(
             bundle,
             ButtonBundle {
                 style: Style {
-                    size: Size::new(Val::Px(150.0), Val::Px(65.0)),
+                    width: Val::Px(150.0),
+                    height: Val::Px(65.0),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
                     ..default()
@@ -203,7 +205,8 @@ fn spawn_button(
 fn spawn_space(parent: &mut ChildBuilder, width: f32) {
     parent.spawn(NodeBundle {
         style: Style {
-            size: Size::new(Val::Px(width), Val::Auto),
+            width: Val::Px(width),
+            height: Val::Auto,
             ..default()
         },
         ..default()
@@ -242,7 +245,7 @@ fn update_buttons(
 ) {
     for (interaction, mut color) in &mut interaction_query {
         match *interaction {
-            Interaction::Clicked => {
+            Interaction::Pressed => {
                 *color = PRESSED_BUTTON.into();
             }
             Interaction::Hovered => {
@@ -260,7 +263,7 @@ fn handle_add_ranged(
     query: Query<&Interaction, (With<AddRangedButton>, Changed<Interaction>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Clicked) = query.get_single() {
+    if let Ok(Interaction::Pressed) = query.get_single() {
         let weapon = commands.spawn(WeaponBundle::new(Ranged)).id();
         commands.spawn(SoldierBundle::new(weapon));
     }
@@ -271,7 +274,7 @@ fn handle_add_melee(
     query: Query<&Interaction, (With<AddMeleeButton>, Changed<Interaction>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Clicked) = query.get_single() {
+    if let Ok(Interaction::Pressed) = query.get_single() {
         let weapon = commands.spawn(WeaponBundle::new(Melee)).id();
         commands.spawn(SoldierBundle::new(weapon));
     }
@@ -308,7 +311,7 @@ fn handle_save(
     query: Query<&Interaction, (With<SaveButton>, Changed<Interaction>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Clicked) = query.get_single() {
+    if let Ok(Interaction::Pressed) = query.get_single() {
         commands.insert_resource(SaveRequest);
     }
 }
@@ -318,7 +321,7 @@ fn handle_load(
     query: Query<&Interaction, (With<LoadButton>, Changed<Interaction>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Clicked) = query.get_single() {
+    if let Ok(Interaction::Pressed) = query.get_single() {
         commands.insert_resource(LoadRequest);
     }
 }

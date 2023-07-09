@@ -47,9 +47,8 @@ fn app() -> App {
         .register_type::<FooBar>()
         .register_type::<Bar>()
         .add_plugins(MinimalPlugins)
-        .add_plugin(LoadPlugin)
-        .add_plugin(SavePlugin)
-        .add_system(component_from_loaded::<FooBar>());
+        .add_plugins((SavePlugin, LoadPlugin))
+        .add_systems(PreUpdate, component_from_loaded::<FooBar>());
     app
 }
 
@@ -57,7 +56,7 @@ fn app() -> App {
 fn it_works() {
     {
         let mut app = app();
-        app.add_system(save_into_file(SAVE_PATH));
+        app.add_systems(PreUpdate, save_into_file(SAVE_PATH));
 
         // Spawn some entities
         let bar = app.world.spawn(BarBundle::default()).id();
@@ -81,7 +80,7 @@ fn it_works() {
 
     {
         let mut app = app();
-        app.add_system(load_from_file(SAVE_PATH));
+        app.add_systems(PreUpdate, load_from_file(SAVE_PATH));
 
         // Spawn an entity to offset indices
         app.world.spawn_empty();

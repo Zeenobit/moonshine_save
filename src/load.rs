@@ -37,15 +37,8 @@
 pub use std::io::Error as ReadError;
 use std::path::{Path, PathBuf};
 
-use bevy_app::{
-    CoreSet, {App, AppTypeRegistry, Plugin},
-};
-use bevy_ecs::{
-    entity::EntityMap,
-    prelude::*,
-    query::ReadOnlyWorldQuery,
-    schedule::{SystemConfig, SystemConfigs},
-};
+use bevy_app::{App, Plugin, PreUpdate};
+use bevy_ecs::{entity::EntityMap, prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
 use bevy_hierarchy::DespawnRecursiveExt;
 #[cfg(feature = "hierarchy")]
 use bevy_hierarchy::{BuildChildren, Parent};
@@ -69,19 +62,22 @@ pub struct LoadPlugin;
 impl Plugin for LoadPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
+            PreUpdate,
             (
                 LoadSet::Load,
                 LoadSet::PostLoad.run_if(has_resource::<Loaded>),
                 LoadSet::Flush.run_if(has_resource::<Loaded>),
             )
                 .chain()
-                .after(CoreSet::FirstFlush)
                 .before(SaveSet::Save),
         )
-        .add_systems((remove_resource::<Loaded>, apply_system_buffers).in_set(LoadSet::Flush));
+        .add_systems(
+            PreUpdate,
+            (remove_resource::<Loaded>, apply_deferred).in_set(LoadSet::Flush),
+        );
 
         #[cfg(feature = "hierarchy")]
-        app.add_system(hierarchy_post_load.in_set(LoadSet::PostLoad));
+        app.add_systems(PreUpdate, hierarchy_post_load.in_set(LoadSet::PostLoad));
     }
 }
 
@@ -207,7 +203,7 @@ impl From<SceneSpawnError> for Error {
 ///     todo!()
 /// }
 /// ```
-pub fn load_from_file(path: impl Into<PathBuf>) -> SystemConfig {
+pub fn load_from_file(path: impl Into<PathBuf>) -> SystemConfigs {
     let path = path.into();
     from_file(path)
         .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
@@ -357,7 +353,7 @@ where
 /// Note: If multiple events are sent in a single update cycle, only the first one is processed.
 pub fn load_from_file_on_event<R>() -> SystemConfigs
 where
-    R: LoadFromFileRequest + Send + Sync + 'static,
+    R: LoadFromFileRequest + Event,
 {
     (file_from_event::<R>
         .pipe(from_file_dyn)
@@ -379,7 +375,7 @@ where
 
 pub fn file_from_event<R>(mut events: EventReader<R>) -> PathBuf
 where
-    R: LoadFromFileRequest + Send + Sync + 'static,
+    R: LoadFromFileRequest + Event,
 {
     let mut iter = events.iter();
     let event = iter.next().unwrap();
@@ -444,7 +440,7 @@ impl<T: FromLoaded> FromLoaded for Vec<T> {
 }
 
 /// A [`SystemConfig`] which automatically invokes [`FromLoaded`] on given [`Component`] type during [`LoadSet::PostLoad`].
-pub fn component_from_loaded<T: Component + FromLoaded>() -> SystemConfig {
+pub fn component_from_loaded<T: Component + FromLoaded>() -> SystemConfigs {
     (|loaded: Res<Loaded>, mut query: Query<&mut T>| {
         for mut component in query.iter_mut() {
             // SAFE: Reassign to `Mut<T>`
@@ -461,7 +457,7 @@ pub fn component_from_loaded<T: Component + FromLoaded>() -> SystemConfig {
 /// match the given query filter `F` during [`LoadSet::PostLoad`].
 ///
 /// This system is useful for initializing non-serializable components on saved entities.
-pub fn insert_default_after_load<F: ReadOnlyWorldQuery, T: Bundle + Default>() -> SystemConfig
+pub fn insert_default_after_load<F: ReadOnlyWorldQuery, T: Bundle + Default>() -> SystemConfigs
 where
     F: 'static + Send + Sync,
 {
@@ -472,7 +468,7 @@ where
 /// match the given query filter `F` during [`LoadSet::PostLoad`].
 ///
 /// This system is useful for initializing non-serializable components on saved entities.
-pub fn insert_clone_after_load<F: ReadOnlyWorldQuery, T: Bundle + Clone>(bundle: T) -> SystemConfig
+pub fn insert_clone_after_load<F: ReadOnlyWorldQuery, T: Bundle + Clone>(bundle: T) -> SystemConfigs
 where
     F: 'static + Send + Sync,
 {
@@ -485,7 +481,7 @@ where
 /// This system is useful for initializing non-serializable components on saved entities.
 pub fn insert_after_load_with<F: ReadOnlyWorldQuery, T: Bundle, G: Fn() -> T>(
     bundle: G,
-) -> SystemConfig
+) -> SystemConfigs
 where
     F: 'static + Send + Sync,
     G: 'static + Send + Sync,
@@ -514,6 +510,7 @@ mod tests {
     use super::*;
 
     pub const DATA: &str = "(
+        resources: {},
         entities: {
             0: (
                 components: {
@@ -534,9 +531,9 @@ mod tests {
         write(PATH, DATA).unwrap();
 
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
+        app.add_plugins((MinimalPlugins, LoadPlugin))
             .register_type::<Dummy>()
-            .add_system(load_from_file(PATH));
+            .add_systems(PreUpdate, load_from_file(PATH));
 
         app.update();
 
@@ -565,9 +562,9 @@ mod tests {
         }
 
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
+        app.add_plugins((MinimalPlugins, LoadPlugin))
             .register_type::<Dummy>()
-            .add_systems(load_from_file_on_request::<LoadRequest>());
+            .add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>());
 
         app.world.insert_resource(LoadRequest);
         app.update();
@@ -587,6 +584,7 @@ mod tests {
 
         write(PATH, DATA).unwrap();
 
+        #[derive(Event)]
         struct LoadRequest;
 
         impl LoadFromFileRequest for LoadRequest {
@@ -596,10 +594,10 @@ mod tests {
         }
 
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
+        app.add_plugins((MinimalPlugins, LoadPlugin))
             .register_type::<Dummy>()
             .add_event::<LoadRequest>()
-            .add_systems(load_from_file_on_event::<LoadRequest>());
+            .add_systems(PreUpdate, load_from_file_on_event::<LoadRequest>());
 
         app.world.send_event(LoadRequest);
         app.update();
@@ -626,10 +624,8 @@ mod tests {
 
         {
             let mut app = App::new();
-            app.add_plugins(MinimalPlugins)
-                .add_plugin(HierarchyPlugin)
-                .add_plugin(SavePlugin)
-                .add_system(save_into_file(PATH));
+            app.add_plugins((MinimalPlugins, HierarchyPlugin, SavePlugin))
+                .add_systems(PreUpdate, save_into_file(PATH));
 
             let entity = app
                 .world
@@ -660,10 +656,8 @@ mod tests {
 
         {
             let mut app = App::new();
-            app.add_plugins(MinimalPlugins)
-                .add_plugin(HierarchyPlugin)
-                .add_plugin(LoadPlugin)
-                .add_system(load_from_file(PATH));
+            app.add_plugins((MinimalPlugins, HierarchyPlugin, LoadPlugin))
+                .add_systems(PreUpdate, load_from_file(PATH));
 
             // Spawn an entity to offset indices
             app.world.spawn_empty();

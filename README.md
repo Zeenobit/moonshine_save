@@ -39,7 +39,7 @@ struct PlayerBundle {
 Add `SavePlugin` and register your serialized components:
 
 ```rust,ignore
-app.add_plugin(SavePlugin)
+app.add_plugins(SavePlugin)
     .register_type::<Player>()
     .register_type::<Level>();
 ```
@@ -47,13 +47,13 @@ app.add_plugin(SavePlugin)
 Finally, to invoke the save process, you must add a save pipeline. The default save pipeline is `save_into_file`:
 
 ```rust,ignore
-app.add_system(save_into_file("saved.ron"));
+app.add_systems(PreUpdate, save_into_file("saved.ron"));
 ```
 
 When used on its own, `save_into_file` would save the world state on every application update. This is often undesirable because you typically want save to happen at specific times. To do this, you can combine `save_into_file` with `run_if`:
 
 ```rust,ignore
-app.add_system(save_into_file("saved.ron").run_if(should_save));
+app.add_systems(PreUpdate, save_into_file("saved.ron").run_if(should_save));
 
 fn should_save( /* ... */ ) -> bool {
     todo!()
@@ -114,13 +114,13 @@ impl FromLoaded for PlayerWeapon {
 
 ...
 
-app.add_system(component_from_loaded::<PlayerWeapon>());
+app.add_systems(PreUpdate, component_from_loaded::<PlayerWeapon>());
 ```
 
 Make sure `LoadPlugin` is added and your types are registered:
 
 ```rust,ignore
-app.add_plugin(LoadPlugin)
+app.add_plugins(LoadPlugin)
     .register_type::<Player>()
     .register_type::<Level>();
 ```
@@ -128,13 +128,13 @@ app.add_plugin(LoadPlugin)
 Finally, to invoke the load process, you must add a load pipeline. The default load pipeline is `load_from_file`:
 
 ```rust,ignore
-app.add_system(load_from_file("saved.ron"));
+app.add_systems(PreUpdate, load_from_file("saved.ron"));
 ```
 
 Similar to `save_into_file`, you typically want to use `load_from_file` with `run_if`:
 
 ```rust,ignore
-app.add_system(load_from_file("saved.ron").run_if(should_load));
+app.add_systems(PreUpdate, load_from_file("saved.ron").run_if(should_load));
 
 fn should_load( /* ... */ ) -> bool {
     todo!()

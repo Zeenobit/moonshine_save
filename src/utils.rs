@@ -8,9 +8,6 @@ pub fn remove_resource<R: Resource>(mut commands: Commands) {
     commands.remove_resource::<R>();
 }
 
-pub fn has_event<R>(mut events: EventReader<R>) -> bool
-where
-    R: Send + Sync + 'static,
-{
+pub fn has_event<R: Event>(mut events: EventReader<R>) -> bool {
     events.iter().next().is_some()
 }

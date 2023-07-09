@@ -1,6 +1,6 @@
 [package]
 name = "moonshine-save"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 license = "MIT"
 description = "Save/Load framework for Bevy game engine"
@@ -12,15 +12,15 @@ repository = "https://github.com/Zeenobit/moonshine_save"
 [dependencies]
 ron = "0.8.0"
 serde = "1.0.*"
-bevy_app = "0.10.*"
-bevy_ecs = "0.10.*"
-bevy_hierarchy = "0.10.*"
-bevy_reflect = "0.10.*"
-bevy_scene = "0.10.*"
-bevy_utils = "0.10.*"
+bevy_app = "0.11.*"
+bevy_ecs = "0.11.*"
+bevy_hierarchy = "0.11.*"
+bevy_reflect = "0.11.*"
+bevy_scene = "0.11.*"
+bevy_utils = "0.11.*"
 
 [dev-dependencies]
-bevy = "0.10.1"
+bevy = "0.11.*"
 
 [features]
 hierarchy = []

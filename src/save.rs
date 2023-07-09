@@ -26,12 +26,8 @@
 pub use std::io::Error as WriteError;
 use std::path::{Path, PathBuf};
 
-use bevy_app::{App, AppTypeRegistry, CoreSet, Plugin};
-use bevy_ecs::{
-    prelude::*,
-    query::ReadOnlyWorldQuery,
-    schedule::{SystemConfig, SystemConfigs},
-};
+use bevy_app::{App, Plugin, PreUpdate};
+use bevy_ecs::{prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
 use bevy_reflect::Reflect;
 use bevy_scene::{DynamicScene, DynamicSceneBuilder};
 use bevy_utils::tracing::{error, info, warn};
@@ -45,15 +41,18 @@ pub struct SavePlugin;
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
+            PreUpdate,
             (
                 SaveSet::Save,
                 SaveSet::PostSave.run_if(has_resource::<Saved>),
                 SaveSet::Flush.run_if(has_resource::<Saved>),
             )
-                .chain()
-                .after(CoreSet::FirstFlush),
+                .chain(),
         )
-        .add_systems((remove_resource::<Saved>, apply_system_buffers).in_set(SaveSet::Flush));
+        .add_systems(
+            PreUpdate,
+            (remove_resource::<Saved>, apply_deferred).in_set(SaveSet::Flush),
+        );
     }
 }
 
@@ -114,7 +113,7 @@ impl From<WriteError> for Error {
 ///     todo!()
 /// }
 /// ```
-pub fn save_into_file(path: impl Into<PathBuf>) -> SystemConfig {
+pub fn save_into_file(path: impl Into<PathBuf>) -> SystemConfigs {
     let path = path.into();
     let s = save::<With<Save>>;
     #[cfg(feature = "hierarchy")]
@@ -229,7 +228,7 @@ where
 /// Note: If multiple events are sent in a single update cycle, only the first one is processed.
 pub fn save_into_file_on_event<R>() -> SystemConfigs
 where
-    R: SaveIntoFileRequest + Send + Sync + 'static,
+    R: SaveIntoFileRequest + Event,
 {
     // Note: This is a single system, but still returned as `SystemConfigs` for easier refactoring.
     ({
@@ -254,7 +253,7 @@ where
 
 pub fn file_from_event<R>(In(saved): In<Saved>, mut events: EventReader<R>) -> (PathBuf, Saved)
 where
-    R: SaveIntoFileRequest + Send + Sync + 'static,
+    R: SaveIntoFileRequest + Event,
 {
     let mut iter = events.iter();
     let event = iter.next().unwrap();
@@ -279,7 +278,7 @@ fn test_save_into_file() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .register_type::<Dummy>()
-        .add_system(save_into_file(PATH));
+        .add_systems(Update, save_into_file(PATH));
 
     app.world.spawn((Dummy, Save));
     app.update();
@@ -314,7 +313,7 @@ fn test_save_into_file_on_request() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .register_type::<Dummy>()
-        .add_systems(save_into_file_on_request::<SaveRequest>());
+        .add_systems(PreUpdate, save_into_file_on_request::<SaveRequest>());
 
     app.world.insert_resource(SaveRequest);
     app.world.spawn((Dummy, Save));
@@ -338,6 +337,7 @@ fn test_save_into_file_on_event() {
 
     pub const PATH: &str = "test_save_event.ron";
 
+    #[derive(Event)]
     struct SaveRequest;
 
     impl SaveIntoFileRequest for SaveRequest {
@@ -350,7 +350,7 @@ fn test_save_into_file_on_event() {
     app.add_plugins(MinimalPlugins)
         .register_type::<Dummy>()
         .add_event::<SaveRequest>()
-        .add_systems(save_into_file_on_event::<SaveRequest>());
+        .add_systems(PreUpdate, save_into_file_on_event::<SaveRequest>());
 
     app.world.send_event(SaveRequest);
     app.world.spawn((Dummy, Save));
