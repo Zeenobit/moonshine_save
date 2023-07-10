@@ -66,14 +66,13 @@ impl Plugin for LoadPlugin {
             (
                 LoadSet::Load,
                 LoadSet::PostLoad.run_if(has_resource::<Loaded>),
-                LoadSet::Flush.run_if(has_resource::<Loaded>),
             )
                 .chain()
                 .before(SaveSet::Save),
         )
         .add_systems(
             PreUpdate,
-            (remove_resource::<Loaded>, apply_deferred).in_set(LoadSet::Flush),
+            remove_resource::<Loaded>.in_set(LoadSet::PostLoad),
         );
 
         #[cfg(feature = "hierarchy")]
@@ -89,8 +88,6 @@ pub enum LoadSet {
     Load,
     /// Runs after [`LoadSet::Load`].
     PostLoad,
-    /// Runs after [`LoadSet::PostLoad`] and flushes system buffers.
-    Flush,
 }
 
 /// A [`Component`] which marks its [`Entity`] to be despawned prior to load.
@@ -325,9 +322,8 @@ pub trait LoadFromFileRequest {
 /// }
 ///
 /// let mut app = App::new();
-/// app.add_plugins(MinimalPlugins)
-///     .add_plugin(LoadPlugin)
-///     .add_systems(load_from_file_on_request::<LoadRequest>());
+/// app.add_plugins((MinimalPlugins, LoadPlugin))
+///     .add_systems(Update, load_from_file_on_request::<LoadRequest>());
 /// ```
 pub fn load_from_file_on_request<R>() -> SystemConfigs
 where

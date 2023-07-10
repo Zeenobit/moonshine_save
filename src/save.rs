@@ -45,13 +45,12 @@ impl Plugin for SavePlugin {
             (
                 SaveSet::Save,
                 SaveSet::PostSave.run_if(has_resource::<Saved>),
-                SaveSet::Flush.run_if(has_resource::<Saved>),
             )
                 .chain(),
         )
         .add_systems(
             PreUpdate,
-            (remove_resource::<Saved>, apply_deferred).in_set(SaveSet::Flush),
+            remove_resource::<Saved>.in_set(SaveSet::PostSave),
         );
     }
 }
@@ -64,8 +63,6 @@ pub enum SaveSet {
     Save,
     /// Runs after [`SaveSet::Save`].
     PostSave,
-    /// Runs after [`SaveSet::PostSave`] and flushes system buffers.
-    Flush,
 }
 
 /// A [`Resource`] which contains the saved [`World`] data during [`SaveSet::PostSave`].
@@ -132,7 +129,6 @@ pub fn save<Filter: ReadOnlyWorldQuery>(world: &World, query: Query<Entity, Filt
 /// A [`System`] which removes a given component from [`Saved`] data.
 pub fn forget_component<T: Component + Reflect>(In(mut saved): In<Saved>) -> Saved {
     for entity in saved.scene.entities.iter_mut() {
-        // TODO: Checking components by type ID doesn't seem to work. I don't know why. Possible bug in Bevy reflect.
         entity
             .components
             .retain(|component| component.type_name() != std::any::type_name::<T>());
@@ -198,9 +194,8 @@ pub trait SaveIntoFileRequest {
 /// }
 ///
 /// let mut app = App::new();
-/// app.add_plugins(MinimalPlugins)
-///     .add_plugin(SavePlugin)
-///     .add_systems(save_into_file_on_request::<SaveRequest>());
+/// app.add_plugins((MinimalPlugins, SavePlugin))
+///     .add_systems(Update, save_into_file_on_request::<SaveRequest>());
 /// ```
 pub fn save_into_file_on_request<R>() -> SystemConfigs
 where
