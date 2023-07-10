@@ -14,7 +14,7 @@
 //! #   app.add_plugins(MinimalPlugins)
 //! #       .add_plugin(SavePlugin)
 //! #       .register_type::<Data>()
-//! #       .add_system(save_into_file("example.ron"));
+//! #       .add_systems(PreUpdate, save_into_file("example.ron"));
 //! #   app.world.spawn((Data(12), Save));
 //! #   app.update();
 //! # }
@@ -22,15 +22,14 @@
 //! # generate_data();
 //! #
 //! let mut app = App::new();
-//! app.add_plugins(MinimalPlugins)
-//!     .add_plugin(LoadPlugin)
+//! app.add_plugins((MinimalPlugins, LoadPlugin))
 //!     .register_type::<Data>()
-//!     .add_system(load_from_file("example.ron"));
+//!     .add_systems(PreUpdate, load_from_file("example.ron"));
 //!
 //! app.update();
 //!
 //! let data = std::fs::read_to_string("example.ron").unwrap();
-//! assert!(data.contains("(12)"));
+//! # assert!(data.contains("(12)"));
 //! # std::fs::remove_file("example.ron");
 //! ```
 
