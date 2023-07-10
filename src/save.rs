@@ -10,16 +10,15 @@
 //! struct Data(u32);
 //!
 //! let mut app = App::new();
-//! app.add_plugins(MinimalPlugins)
-//!     .add_plugin(SavePlugin)
+//! app.add_plugins((MinimalPlugins, SavePlugin))
 //!     .register_type::<Data>()
-//!     .add_system(save_into_file("example.ron"));
+//!     .add_systems(PreUpdate, save_into_file("example.ron"));
 //!
 //! app.world.spawn((Data(12), Save));
 //! app.update();
 //!
 //! let data = std::fs::read_to_string("example.ron").unwrap();
-//! assert!(data.contains("(12)"));
+//! # assert!(data.contains("(12)"));
 //! # std::fs::remove_file("example.ron");
 //! ```
 
