@@ -22,19 +22,20 @@
 //! # std::fs::remove_file("example.ron");
 //! ```
 
-pub use std::io::Error as WriteError;
-use std::path::{Path, PathBuf};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
 use bevy_reflect::Reflect;
 use bevy_scene::{DynamicScene, DynamicSceneBuilder};
 use bevy_utils::tracing::{error, info, warn};
-pub use ron::Error as SerializeError;
 
 use crate::utils::{has_event, has_resource, remove_resource};
 
-/// A [`Plugin`] which configures [`SaveSet`] and adds systems to support saving.
+/// A [`Plugin`] which configures [`SaveSet`] in [`PreUpdate`] schedule.
 pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
@@ -49,16 +50,15 @@ impl Plugin for SavePlugin {
         )
         .add_systems(
             PreUpdate,
-            remove_resource::<Saved>.in_set(SaveSet::PostSave),
+            (remove_resource::<Saved>, apply_deferred).in_set(SaveSet::PostSave),
         );
     }
 }
 
-/// A [`SystemSet`] with all systems that process saving.
+/// A [`SystemSet`] for systems that process saving.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, SystemSet)]
 pub enum SaveSet {
-    /// Runs before all other systems in this set.
-    /// It is reserved for systems which serialize the world and process the output.
+    /// Reserved for systems which serialize the world and process the output.
     Save,
     /// Runs after [`SaveSet::Save`].
     PostSave,
@@ -76,19 +76,19 @@ pub struct Save;
 
 #[derive(Debug)]
 pub enum Error {
-    Serialize(SerializeError),
-    Write(WriteError),
+    Ron(ron::Error),
+    Io(io::Error),
 }
 
-impl From<SerializeError> for Error {
-    fn from(why: SerializeError) -> Self {
-        Self::Serialize(why)
+impl From<ron::Error> for Error {
+    fn from(e: ron::Error) -> Self {
+        Self::Ron(e)
     }
 }
 
-impl From<WriteError> for Error {
-    fn from(why: WriteError) -> Self {
-        Self::Write(why)
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
     }
 }
 
@@ -97,13 +97,13 @@ impl From<WriteError> for Error {
 /// # Usage
 /// Typically, this [`SystemConfig`] should be used with `.run_if` to control when save happens:
 /// ```
-/// # use bevy::prelude::*;
-/// # use moonshine_save::prelude::*;
+/// use bevy::prelude::*;
+/// use moonshine_save::prelude::*;
 ///
 /// let mut app = App::new();
 /// app.add_plugins(MinimalPlugins)
 ///     .add_plugin(SavePlugin)
-///     .add_system(save_into_file("example.ron").run_if(should_save));
+///     .add_systems(PreUpdate, save_into_file("example.ron").run_if(should_save));
 ///
 /// fn should_save() -> bool {
 ///     todo!()
