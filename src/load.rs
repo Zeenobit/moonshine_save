@@ -11,8 +11,7 @@
 //!
 //! # fn generate_data() {
 //! #   let mut app = App::new();
-//! #   app.add_plugins(MinimalPlugins)
-//! #       .add_plugin(SavePlugin)
+//! #   app.add_plugins((MinimalPlugins, SavePlugin))
 //! #       .register_type::<Data>()
 //! #       .add_systems(PreUpdate, save_into_file("example.ron"));
 //! #   app.world.spawn((Data(12), Save));
@@ -33,7 +32,7 @@
 //! # std::fs::remove_file("example.ron");
 //! ```
 
-pub use std::io::Error as ReadError;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use bevy_app::{App, Plugin, PreUpdate};
@@ -46,8 +45,8 @@ use bevy_utils::{
     tracing::{error, info, warn},
     HashMap,
 };
-pub use ron::de::SpannedError as ParseError;
-pub use ron::Error as DeserializeError;
+// pub use ron::de::SpannedError as ParseError;
+// pub use ron::Error as DeserializeError;
 use serde::de::DeserializeSeed;
 
 use crate::{
@@ -55,7 +54,7 @@ use crate::{
     utils::{has_event, has_resource, remove_resource},
 };
 
-/// A [`Plugin`] which configures [`LoadSet`] and adds systems to support loading [`Saved`] data.
+/// A [`Plugin`] which configures [`LoadSet`] in [`PreUpdate`] schedule.
 pub struct LoadPlugin;
 
 impl Plugin for LoadPlugin {
@@ -71,7 +70,7 @@ impl Plugin for LoadPlugin {
         )
         .add_systems(
             PreUpdate,
-            remove_resource::<Loaded>.in_set(LoadSet::PostLoad),
+            (remove_resource::<Loaded>, apply_deferred).in_set(LoadSet::PostLoad),
         );
 
         #[cfg(feature = "hierarchy")]
@@ -79,11 +78,10 @@ impl Plugin for LoadPlugin {
     }
 }
 
-/// A [`SystemSet`] with all systems that process loading [`Saved`] data.
+/// A [`SystemSet`] for systems that process loading [`Saved`] data.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, SystemSet)]
 pub enum LoadSet {
-    /// Runs before all other systems in this set.
-    /// It is reserved for systems which deserialize [`Saved`] data and process the output.
+    /// Reserved for systems which deserialize [`Saved`] data and process the output.
     Load,
     /// Runs after [`LoadSet::Load`].
     PostLoad,
@@ -151,33 +149,33 @@ impl Loaded {
 
 #[derive(Debug)]
 pub enum Error {
-    Read(ReadError),
-    Parse(ParseError),
-    Deserialize(DeserializeError),
+    Io(io::Error),
+    De(ron::de::SpannedError),
+    Ron(ron::Error),
     Scene(SceneSpawnError),
 }
 
-impl From<ReadError> for Error {
-    fn from(why: ReadError) -> Self {
-        Self::Read(why)
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
     }
 }
 
-impl From<ParseError> for Error {
-    fn from(why: ParseError) -> Self {
-        Self::Parse(why)
+impl From<ron::de::SpannedError> for Error {
+    fn from(e: ron::de::SpannedError) -> Self {
+        Self::De(e)
     }
 }
 
-impl From<DeserializeError> for Error {
-    fn from(why: DeserializeError) -> Self {
-        Self::Deserialize(why)
+impl From<ron::Error> for Error {
+    fn from(e: ron::Error) -> Self {
+        Self::Ron(e)
     }
 }
 
 impl From<SceneSpawnError> for Error {
-    fn from(why: SceneSpawnError) -> Self {
-        Self::Scene(why)
+    fn from(e: SceneSpawnError) -> Self {
+        Self::Scene(e)
     }
 }
 
