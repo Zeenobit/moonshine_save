@@ -39,12 +39,7 @@ use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{entity::EntityMap, prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
 use bevy_hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
 use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
-use bevy_utils::{
-    tracing::{error, info, warn},
-    HashMap,
-};
-// pub use ron::de::SpannedError as ParseError;
-// pub use ron::Error as DeserializeError;
+use bevy_utils::tracing::{error, info, warn};
 use serde::de::DeserializeSeed;
 
 use crate::{
@@ -132,17 +127,7 @@ pub struct Unload;
 /// A [`Resource`] which contains the loaded entity map. See [`FromLoaded`] for usage.
 #[derive(Resource)]
 pub struct Loaded {
-    entities: HashMap<u32, Entity>,
-}
-
-impl Loaded {
-    pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
-        self.entities.values().copied()
-    }
-
-    pub fn entity(&self, index: u32) -> Entity {
-        *self.entities.get(&index).unwrap()
-    }
+    pub entity_map: EntityMap,
 }
 
 #[derive(Debug)]
@@ -269,11 +254,7 @@ pub fn load(In(result): In<Result<Saved, Error>>, world: &mut World) -> Result<L
     let Saved { scene } = result?;
     let mut entity_map = EntityMap::default();
     scene.write_to_world(world, &mut entity_map)?;
-    let entities = entity_map
-        .iter()
-        .map(|(key, entity)| (key.index(), entity))
-        .collect();
-    Ok(Loaded { entities })
+    Ok(Loaded { entity_map })
 }
 
 /// A [`System`] which inserts a clone of the given [`Bundle`] into all loaded entities.
@@ -282,7 +263,7 @@ pub fn insert_into_loaded(
 ) -> impl Fn(In<Result<Loaded, Error>>, &mut World) -> Result<Loaded, Error> {
     move |In(result), world| {
         if let Ok(loaded) = &result {
-            for entity in loaded.entities() {
+            for entity in loaded.entity_map.values() {
                 world.entity_mut(entity).insert(bundle.clone());
             }
         }
