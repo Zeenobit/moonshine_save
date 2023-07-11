@@ -21,6 +21,3 @@ bevy_utils = "0.11.*"
 
 [dev-dependencies]
 bevy = "0.11.*"
-
-[features]
-hierarchy = []

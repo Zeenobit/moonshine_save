@@ -37,9 +37,7 @@ use std::path::{Path, PathBuf};
 
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{entity::EntityMap, prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
-use bevy_hierarchy::DespawnRecursiveExt;
-#[cfg(feature = "hierarchy")]
-use bevy_hierarchy::{BuildChildren, Parent};
+use bevy_hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
 use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
 use bevy_utils::{
     tracing::{error, info, warn},
@@ -179,25 +177,32 @@ impl From<SceneSpawnError> for Error {
     }
 }
 
-/// A [`SystemConfig`] which unloads the current [`World`] and loads a new one from [`Saved`] data
-/// deserialized from a file at given `path`.
+/// A collection of systems ([`SystemConfigs`]) which perform the load process.
+pub type LoadPipeline = SystemConfigs;
+
+/// Default [`LoadPipeline`].
 ///
 /// # Usage
-/// Typically, this [`SystemConfig`] should be used with `.run_if` to control when load happens:
+///
+/// This pipeline tries to load all saved entities from a file at given `path`. If successful, it
+/// despawns all entities marked with [`Unload`] (recursively) and spawns the loaded entities.
+///
+/// Typically, it should be used with [`run_if`](bevy_ecs::schedule::SystemSet::run_if).
+///
+/// # Example
 /// ```
-/// # use bevy::prelude::*;
-/// # use moonshine_save::prelude::*;
+/// use bevy::prelude::*;
+/// use moonshine_save::prelude::*;
 ///
 /// let mut app = App::new();
-/// app.add_plugins(MinimalPlugins)
-///     .add_plugin(LoadPlugin)
-///     .add_system(load_from_file("example.ron").run_if(should_load));
+/// app.add_plugins((MinimalPlugins, LoadPlugin))
+///     .add_systems(PreUpdate, load_from_file("example.ron").run_if(should_load));
 ///
 /// fn should_load() -> bool {
 ///     todo!()
 /// }
 /// ```
-pub fn load_from_file(path: impl Into<PathBuf>) -> SystemConfigs {
+pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
     let path = path.into();
     from_file(path)
         .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
@@ -207,7 +212,7 @@ pub fn load_from_file(path: impl Into<PathBuf>) -> SystemConfigs {
         .in_set(LoadSet::Load)
 }
 
-/// A [`System`] which read [`Saved`] data from a file at given `path`.
+/// A [`System`] which reads [`Saved`] data from a file at given `path`.
 pub fn from_file(
     path: impl Into<PathBuf>,
 ) -> impl Fn(Res<AppTypeRegistry>) -> Result<Saved, Error> {
@@ -225,6 +230,7 @@ pub fn from_file(
     }
 }
 
+/// A [`System`] which reads [`Saved`] data from a file with its path defined at runtime.
 pub fn from_file_dyn(
     In(path): In<PathBuf>,
     type_registry: Res<AppTypeRegistry>,
@@ -240,17 +246,17 @@ pub fn from_file_dyn(
     Ok(Saved { scene })
 }
 
-/// A [`System`] which unloads all entities that match the given `Filter` during load.
+/// A [`System`] which recursively despawns all entities that match the given `Filter`.
 pub fn unload<Filter: ReadOnlyWorldQuery>(
     In(result): In<Result<Saved, Error>>,
     world: &mut World,
 ) -> Result<Saved, Error> {
     let saved = result?;
-    let unload_entities: Vec<Entity> = world
+    let entities: Vec<Entity> = world
         .query_filtered::<Entity, Filter>()
         .iter(world)
         .collect();
-    for entity in unload_entities {
+    for entity in entities {
         if let Some(entity) = world.get_entity_mut(entity) {
             entity.despawn_recursive();
         }
@@ -267,10 +273,10 @@ pub fn load(In(result): In<Result<Saved, Error>>, world: &mut World) -> Result<L
         .iter()
         .map(|(key, entity)| (key.index(), entity))
         .collect();
-
     Ok(Loaded { entities })
 }
 
+/// A [`System`] which inserts a clone of the given [`Bundle`] into all loaded entities.
 pub fn insert_into_loaded(
     bundle: impl Bundle + Clone,
 ) -> impl Fn(In<Result<Loaded, Error>>, &mut World) -> Result<Loaded, Error> {
@@ -285,6 +291,10 @@ pub fn insert_into_loaded(
 }
 
 /// A [`System`] which finishes the load process.
+///
+/// # Usage
+///
+/// All load pipelines should end with this system.
 pub fn finish(In(result): In<Result<Loaded, Error>>, world: &mut World) {
     match result {
         Ok(loaded) => world.insert_resource(loaded),
@@ -292,16 +302,14 @@ pub fn finish(In(result): In<Result<Loaded, Error>>, world: &mut World) {
     }
 }
 
+/// Any type which may be used to trigger [`load_from_file_on_request`] or [`load_from_file_on_event`].
 pub trait LoadFromFileRequest {
     fn path(&self) -> &Path;
 }
 
-/// A load pipeline ([`SystemConfigs`]) which works similarly to [`load_from_file`],
-/// but uses a [`LoadFromFileRequest`] request to get the path.
+/// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Resource`] is present.
 ///
-/// # Usage
-/// Unlike [`load_from_file`], you should not use this in conjunction with `.run_if`.
-/// This pipeline is only executed when the request is present.
+/// # Example
 /// ```
 /// # use std::path::{Path, PathBuf};
 /// # use bevy::prelude::*;
@@ -336,29 +344,28 @@ where
         remove_resource::<R>,
     )
         .chain()
-        .in_set(LoadSet::Load)
         .distributive_run_if(has_resource::<R>)
+        .in_set(LoadSet::Load)
 }
 
-/// A save pipeline ([`SystemConfigs`]) which works similarly to [`load_from_file_on_request`],
-/// except it uses an [`Event`] to get the path.
+/// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Event`] is sent.
 ///
 /// Note: If multiple events are sent in a single update cycle, only the first one is processed.
 pub fn load_from_file_on_event<R>() -> SystemConfigs
 where
     R: LoadFromFileRequest + Event,
 {
-    (file_from_event::<R>
+    file_from_event::<R>
         .pipe(from_file_dyn)
         .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
         .pipe(load)
         .pipe(insert_into_loaded(Save))
-        .pipe(finish),)
-        .chain()
-        .in_set(LoadSet::Load)
+        .pipe(finish)
         .distributive_run_if(has_event::<R>)
+        .in_set(LoadSet::Load)
 }
 
+/// A [`System`] which extracts the path from a [`LoadFromFileRequest`] [`Resource`].
 pub fn file_from_request<R>(request: Res<R>) -> PathBuf
 where
     R: LoadFromFileRequest + Resource,
@@ -366,6 +373,13 @@ where
     request.path().to_owned()
 }
 
+/// A [`System`] which extracts the path from a [`LoadFromFileRequest`] [`Event`].
+///
+/// # Warning
+///
+/// If multiple events are sent in a single update cycle, only the first one is processed.
+///
+/// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
 pub fn file_from_event<R>(mut events: EventReader<R>) -> PathBuf
 where
     R: LoadFromFileRequest + Event,
@@ -408,6 +422,7 @@ where
 ///     .add_plugin(LoadPlugin)
 ///     .add_system(component_from_loaded::<Data>());
 /// ```
+#[deprecated(note = "TODO: Refactor to MapEntities")]
 pub trait FromLoaded {
     fn from_loaded(_: Self, loaded: &Loaded) -> Self;
 }
@@ -487,7 +502,6 @@ where
     .in_set(LoadSet::PostLoad)
 }
 
-#[cfg(feature = "hierarchy")]
 pub fn hierarchy_post_load(query: Query<(Entity, &Parent)>, mut commands: Commands) {
     for (entity, old_parent) in &query {
         commands.entity(entity).set_parent(**old_parent);
@@ -517,16 +531,21 @@ mod tests {
     #[reflect(Component)]
     struct Dummy;
 
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, LoadPlugin))
+            .register_type::<Dummy>();
+        app
+    }
+
     #[test]
     fn test_load_from_file() {
         pub const PATH: &str = "test_load.ron";
 
         write(PATH, DATA).unwrap();
 
-        let mut app = App::new();
-        app.add_plugins((MinimalPlugins, LoadPlugin))
-            .register_type::<Dummy>()
-            .add_systems(PreUpdate, load_from_file(PATH));
+        let mut app = app();
+        app.add_systems(PreUpdate, load_from_file(PATH));
 
         app.update();
 
@@ -554,10 +573,8 @@ mod tests {
             }
         }
 
-        let mut app = App::new();
-        app.add_plugins((MinimalPlugins, LoadPlugin))
-            .register_type::<Dummy>()
-            .add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>());
+        let mut app = app();
+        app.add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>());
 
         app.world.insert_resource(LoadRequest);
         app.update();
@@ -586,10 +603,8 @@ mod tests {
             }
         }
 
-        let mut app = App::new();
-        app.add_plugins((MinimalPlugins, LoadPlugin))
-            .register_type::<Dummy>()
-            .add_event::<LoadRequest>()
+        let mut app = app();
+        app.add_event::<LoadRequest>()
             .add_systems(PreUpdate, load_from_file_on_event::<LoadRequest>());
 
         app.world.send_event(LoadRequest);
@@ -605,7 +620,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "hierarchy")]
     fn test_hierarchy() {
         use std::fs::*;
 
@@ -644,7 +658,7 @@ mod tests {
             // Hierarchy should not contain children
             let data = std::fs::read_to_string(PATH).unwrap();
             assert!(data.contains("Parent"));
-            assert!(!data.contains("Children"));
+            assert!(data.contains("Children"));
         }
 
         {
