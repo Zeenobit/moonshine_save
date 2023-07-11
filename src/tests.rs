@@ -1,4 +1,8 @@
 use bevy::prelude::*;
+use bevy_ecs::{
+    entity::{EntityMapper, MapEntities},
+    reflect::ReflectMapEntities,
+};
 
 use crate::prelude::*;
 
@@ -26,7 +30,7 @@ struct Foo(u32);
 struct Bar;
 
 #[derive(Component, Reflect)]
-#[reflect(Component)]
+#[reflect(Component, MapEntities)]
 struct FooBar(Entity);
 
 impl FromWorld for FooBar {
@@ -35,9 +39,9 @@ impl FromWorld for FooBar {
     }
 }
 
-impl FromLoaded for FooBar {
-    fn from_loaded(old: Self, loaded: &Loaded) -> Self {
-        Self(Entity::from_loaded(old.0, loaded))
+impl MapEntities for FooBar {
+    fn map_entities(&mut self, entity_mapper: &mut EntityMapper) {
+        self.0 = entity_mapper.get_or_reserve(self.0);
     }
 }
 
@@ -47,8 +51,7 @@ fn app() -> App {
         .register_type::<FooBar>()
         .register_type::<Bar>()
         .add_plugins(MinimalPlugins)
-        .add_plugins((SavePlugin, LoadPlugin))
-        .add_systems(PreUpdate, component_from_loaded::<FooBar>());
+        .add_plugins((SavePlugin, LoadPlugin));
     app
 }
 
