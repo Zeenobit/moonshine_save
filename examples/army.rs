@@ -5,6 +5,7 @@
 //! The state of this army can be saved into and loaded from disk.
 
 use bevy::prelude::*;
+use bevy_ecs::entity::{EntityMapper, MapEntities};
 use moonshine_save::prelude::*;
 
 const SAVE_PATH: &str = "army.ron";
@@ -38,12 +39,6 @@ fn main() {
                 .chain()
                 .distributive_run_if(should_save),
         )
-        // If a component references an entity, it must be updated after load to
-        // ensure it points to the correct entity, since the IDs may change during load.
-        // To do this, a component may implement FromLoaded, and invoke it recursively
-        // on its members.
-        // If a component implements FromLoaded, it may be invoked automatically as such:
-        .add_systems(PreUpdate, component_from_loaded::<SoldierWeapon>())
         .run();
 }
 
@@ -76,9 +71,11 @@ struct Soldier;
 #[reflect(Component)]
 struct SoldierWeapon(Option<Entity>);
 
-impl FromLoaded for SoldierWeapon {
-    fn from_loaded(old: Self, loaded: &Loaded) -> Self {
-        Self(Option::from_loaded(old.0, loaded))
+impl MapEntities for SoldierWeapon {
+    fn map_entities(&mut self, entity_mapper: &mut EntityMapper) {
+        if let Some(weapon) = self.0.as_mut() {
+            *weapon = entity_mapper.get_or_reserve(*weapon);
+        }
     }
 }
 
