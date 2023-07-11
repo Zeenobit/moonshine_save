@@ -99,22 +99,20 @@ fn spawn_player_visuals(query: Query<Entity, Added<Player>>, mut commands: Comma
 }
 ```
 
-Any saved components which reference entities must implement `FromLoaded` and be invoked during post load using `component_from_loaded`:
+Any saved components which reference entities must use `#[reflect(MapEntities)]` and implement `MapEntities`:
 
 ```rust,ignore
 #[derive(Component, Default, Reflect)]
-#[reflect(Component)]
+#[reflect(Component, MapEntities)]
 struct PlayerWeapon(Option<Entity>);
 
-impl FromLoaded for PlayerWeapon {
-    fn from_loaded(old: Self, loaded: &Loaded) -> Self {
-        Self(Option::from_loaded(loaded))
+impl MapEntities for PlayerWeapon {
+    fn map_entities(&mut self, entity_mapper: &mut EntityMapper) {
+        if let Some(weapon) = self.0.as_mut() {
+            *weapon = entity_mapper.get_or_reserve(*weapon);
+        }
     }
 }
-
-...
-
-app.add_systems(PreUpdate, component_from_loaded::<PlayerWeapon>());
 ```
 
 Make sure `LoadPlugin` is added and your types are registered:
@@ -144,13 +142,6 @@ fn should_load( /* ... */ ) -> bool {
 ## Example
 
 See [examples/army.rs](examples/army.rs) for a minimal application which demonstrates how to save/load game state in detail.
-
-## Bevy Components
-
-Some built-in Bevy components reference entities, most notably `Parent` and `Children`.
-While this crate does support loading of `Parent` and `Children` (you must enable "hierarchy" feature for this), none of the other Bevy components are supported. The rationale for this is that these components are often used for game aesthetics, rather than saved game data.
-
-Ideally, your saved game data should be completely separate from the aesthetic elements.
 
 ## Dynamic Save File Path
 
