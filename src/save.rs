@@ -234,7 +234,6 @@ where
 {
     // Note: This is a single system, but still returned as `SystemConfigs` for easier refactoring.
     save::<With<Save>>
-        .pipe(remove_component::<bevy_hierarchy::Children>)
         .pipe(file_from_event::<R>)
         .pipe(into_file_dyn)
         .pipe(finish)
