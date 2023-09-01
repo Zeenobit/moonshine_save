@@ -30,8 +30,11 @@ use std::{
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
 use bevy_reflect::Reflect;
-use bevy_scene::{DynamicScene, DynamicSceneBuilder};
-use bevy_utils::tracing::{error, info, warn};
+use bevy_scene::{DynamicScene, DynamicSceneBuilder, SceneFilter};
+use bevy_utils::{
+    tracing::{error, info, warn},
+    HashSet,
+};
 
 use crate::utils::{has_event, has_resource, remove_resource};
 
@@ -92,6 +95,44 @@ impl From<io::Error> for Error {
     }
 }
 
+#[derive(Default)]
+pub enum EntityFilter {
+    #[default]
+    Any,
+    Allow(HashSet<Entity>),
+    Block(HashSet<Entity>),
+}
+
+impl EntityFilter {
+    #[must_use]
+    pub fn any() -> Self {
+        Self::Any
+    }
+
+    #[must_use]
+    pub fn allow(entities: impl IntoIterator<Item = Entity>) -> Self {
+        Self::Allow(entities.into_iter().collect())
+    }
+
+    #[must_use]
+    pub fn block(entities: impl IntoIterator<Item = Entity>) -> Self {
+        Self::Block(entities.into_iter().collect())
+    }
+}
+
+#[derive(Default)]
+pub struct SaveFilter {
+    pub entities: EntityFilter,
+    pub scene: SceneFilter,
+}
+
+pub fn filter<Filter: ReadOnlyWorldQuery>(entities: Query<Entity, Filter>) -> SaveFilter {
+    SaveFilter {
+        entities: EntityFilter::allow(&entities),
+        ..Default::default()
+    }
+}
+
 /// A collection of systems ([`SystemConfigs`]) which perform the save process.
 pub type SavePipeline = SystemConfigs;
 
@@ -117,7 +158,8 @@ pub type SavePipeline = SystemConfigs;
 /// }
 /// ```
 pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
-    save::<With<Save>>
+    filter::<With<Save>>
+        .pipe(save)
         .pipe(into_file(path.into()))
         .pipe(finish)
         .in_set(SaveSet::Save)
@@ -128,9 +170,22 @@ pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
 /// # Usage
 ///
 /// All save pipelines should start with this system.
-pub fn save<Filter: ReadOnlyWorldQuery>(world: &World, query: Query<Entity, Filter>) -> Saved {
+pub fn save(In(filter): In<SaveFilter>, world: &World) -> Saved {
     let mut builder = DynamicSceneBuilder::from_world(world);
-    builder.extract_entities(query.iter());
+    builder.with_filter(filter.scene);
+    match filter.entities {
+        EntityFilter::Any => {}
+        EntityFilter::Allow(entities) => {
+            builder.extract_entities(entities.into_iter());
+        }
+        EntityFilter::Block(entities) => {
+            builder.extract_entities(
+                world
+                    .iter_entities()
+                    .filter_map(|entity| (!entities.contains(&entity.id())).then_some(entity.id())),
+            );
+        }
+    }
     let scene = builder.build();
     Saved { scene }
 }
@@ -213,7 +268,8 @@ where
     R: SaveIntoFileRequest + Resource,
 {
     (
-        save::<With<Save>>
+        filter::<With<Save>>
+            .pipe(save)
             .pipe(file_from_request::<R>)
             .pipe(into_file_dyn)
             .pipe(finish),
@@ -233,7 +289,8 @@ where
     R: SaveIntoFileRequest + Event,
 {
     // Note: This is a single system, but still returned as `SystemConfigs` for easier refactoring.
-    save::<With<Save>>
+    filter::<With<Save>>
+        .pipe(save)
         .pipe(file_from_event::<R>)
         .pipe(into_file_dyn)
         .pipe(finish)
