@@ -65,9 +65,6 @@ impl Plugin for LoadPlugin {
             PreUpdate,
             (remove_resource::<Loaded>, apply_deferred).in_set(LoadSet::PostLoad),
         );
-
-        #[cfg(feature = "hierarchy")]
-        app.add_systems(PreUpdate, hierarchy_post_load.in_set(LoadSet::PostLoad));
     }
 }
 
