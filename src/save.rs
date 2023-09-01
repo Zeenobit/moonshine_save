@@ -165,6 +165,55 @@ pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
         .in_set(SaveSet::Save)
 }
 
+/// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Resource`] is present.
+///
+/// ```
+/// use std::path::{Path, PathBuf};
+///
+/// use bevy::prelude::*;
+/// use moonshine_save::prelude::*;
+///
+/// #[derive(Resource)]
+/// struct SaveRequest {
+///     pub path: PathBuf,
+/// }
+///
+/// impl SaveIntoFileRequest for SaveRequest {
+///     fn path(&self) -> &Path {
+///         self.path.as_ref()
+///     }
+/// }
+///
+/// let mut app = App::new();
+/// app.add_plugins((MinimalPlugins, SavePlugin))
+///     .add_systems(Update, save_into_file_on_request::<SaveRequest>());
+/// ```
+pub fn save_into_file_on_request<R: SaveIntoFileRequest + Resource>() -> SavePipeline {
+    filter::<With<Save>>
+        .pipe(save)
+        .pipe(file_from_request::<R>)
+        .pipe(into_file_dyn)
+        .pipe(finish)
+        .pipe(remove_resource::<R>)
+        .run_if(has_resource::<R>)
+        .in_set(SaveSet::Save)
+}
+
+/// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Event`] is sent.
+///
+/// # Warning
+/// If multiple events are sent in a single update cycle, only the first one is processed.
+pub fn save_into_file_on_event<R: SaveIntoFileRequest + Event>() -> SavePipeline {
+    // Note: This is a single system, but still returned as `SystemConfigs` for easier refactoring.
+    filter::<With<Save>>
+        .pipe(save)
+        .pipe(file_from_event::<R>)
+        .pipe(into_file_dyn)
+        .pipe(finish)
+        .run_if(has_event::<R>)
+        .in_set(SaveSet::Save)
+}
+
 /// A [`System`] which creates [`Saved`] data from all entities with given `Filter`.
 ///
 /// # Usage
@@ -234,70 +283,6 @@ pub fn finish(In(result): In<Result<Saved, Error>>, world: &mut World) {
     }
 }
 
-/// Any type which may be used to trigger [`save_into_file_on_request`] or [`save_into_file_on_event`].
-pub trait SaveIntoFileRequest {
-    /// Path of the file to save into.
-    fn path(&self) -> &Path;
-}
-
-/// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Resource`] is present.
-///
-/// ```
-/// use std::path::{Path, PathBuf};
-///
-/// use bevy::prelude::*;
-/// use moonshine_save::prelude::*;
-///
-/// #[derive(Resource)]
-/// struct SaveRequest {
-///     pub path: PathBuf,
-/// }
-///
-/// impl SaveIntoFileRequest for SaveRequest {
-///     fn path(&self) -> &Path {
-///         self.path.as_ref()
-///     }
-/// }
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(Update, save_into_file_on_request::<SaveRequest>());
-/// ```
-pub fn save_into_file_on_request<R>() -> SavePipeline
-where
-    R: SaveIntoFileRequest + Resource,
-{
-    (
-        filter::<With<Save>>
-            .pipe(save)
-            .pipe(file_from_request::<R>)
-            .pipe(into_file_dyn)
-            .pipe(finish),
-        remove_resource::<R>,
-    )
-        .chain()
-        .distributive_run_if(has_resource::<R>)
-        .in_set(SaveSet::Save)
-}
-
-/// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Event`] is sent.
-///
-/// # Warning
-/// If multiple events are sent in a single update cycle, only the first one is processed.
-pub fn save_into_file_on_event<R>() -> SavePipeline
-where
-    R: SaveIntoFileRequest + Event,
-{
-    // Note: This is a single system, but still returned as `SystemConfigs` for easier refactoring.
-    filter::<With<Save>>
-        .pipe(save)
-        .pipe(file_from_event::<R>)
-        .pipe(into_file_dyn)
-        .pipe(finish)
-        .run_if(has_event::<R>)
-        .in_set(SaveSet::Save)
-}
-
 /// A [`System`] which extracts the path from a [`SaveIntoFileRequest`] [`Resource`].
 pub fn file_from_request<R>(In(saved): In<Saved>, request: Res<R>) -> (PathBuf, Saved)
 where
@@ -325,6 +310,12 @@ where
     }
     let path = event.path().to_owned();
     (path, saved)
+}
+
+/// Any type which may be used to trigger [`save_into_file_on_request`] or [`save_into_file_on_event`].
+pub trait SaveIntoFileRequest {
+    /// Path of the file to save into.
+    fn path(&self) -> &Path;
 }
 
 #[cfg(test)]
