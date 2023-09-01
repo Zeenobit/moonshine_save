@@ -362,12 +362,6 @@ where
     event.path().to_owned()
 }
 
-pub fn hierarchy_post_load(query: Query<(Entity, &Parent)>, mut commands: Commands) {
-    for (entity, old_parent) in &query {
-        commands.entity(entity).set_parent(**old_parent);
-    }
-}
-
 /// Any type which may be used to trigger [`load_from_file_on_request`] or [`load_from_file_on_event`].
 pub trait LoadFromFileRequest {
     fn path(&self) -> &Path;
