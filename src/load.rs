@@ -37,7 +37,7 @@ use std::path::{Path, PathBuf};
 
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{entity::EntityMap, prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
-use bevy_hierarchy::{BuildChildren, DespawnRecursiveExt, Parent};
+use bevy_hierarchy::DespawnRecursiveExt;
 use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
 use bevy_utils::tracing::{error, info, warn};
 use serde::de::DeserializeSeed;
