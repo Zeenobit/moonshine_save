@@ -194,6 +194,61 @@ pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
         .in_set(LoadSet::Load)
 }
 
+/// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Resource`] is present.
+///
+/// # Example
+/// ```
+/// # use std::path::{Path, PathBuf};
+/// # use bevy::prelude::*;
+/// # use moonshine_save::prelude::*;
+///
+/// #[derive(Resource)]
+/// struct LoadRequest {
+///     pub path: PathBuf,
+/// }
+///
+/// impl LoadFromFileRequest for LoadRequest {
+///     fn path(&self) -> &Path {
+///         self.path.as_ref()
+///     }
+/// }
+///
+/// let mut app = App::new();
+/// app.add_plugins((MinimalPlugins, LoadPlugin))
+///     .add_systems(Update, load_from_file_on_request::<LoadRequest>());
+/// ```
+pub fn load_from_file_on_request<R>() -> SystemConfigs
+where
+    R: LoadFromFileRequest + Resource,
+{
+    file_from_request::<R>
+        .pipe(from_file_dyn)
+        .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
+        .pipe(load)
+        .pipe(insert_into_loaded(Save))
+        .pipe(finish)
+        .pipe(remove_resource::<R>)
+        .run_if(has_resource::<R>)
+        .in_set(LoadSet::Load)
+}
+
+/// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Event`] is sent.
+///
+/// Note: If multiple events are sent in a single update cycle, only the first one is processed.
+pub fn load_from_file_on_event<R>() -> SystemConfigs
+where
+    R: LoadFromFileRequest + Event,
+{
+    file_from_event::<R>
+        .pipe(from_file_dyn)
+        .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
+        .pipe(load)
+        .pipe(insert_into_loaded(Save))
+        .pipe(finish)
+        .run_if(has_event::<R>)
+        .in_set(LoadSet::Load)
+}
+
 /// A [`System`] which reads [`Saved`] data from a file at given `path`.
 pub fn from_file(
     path: impl Into<PathBuf>,
@@ -280,69 +335,6 @@ pub fn finish(In(result): In<Result<Loaded, Error>>, world: &mut World) {
     }
 }
 
-/// Any type which may be used to trigger [`load_from_file_on_request`] or [`load_from_file_on_event`].
-pub trait LoadFromFileRequest {
-    fn path(&self) -> &Path;
-}
-
-/// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Resource`] is present.
-///
-/// # Example
-/// ```
-/// # use std::path::{Path, PathBuf};
-/// # use bevy::prelude::*;
-/// # use moonshine_save::prelude::*;
-///
-/// #[derive(Resource)]
-/// struct LoadRequest {
-///     pub path: PathBuf,
-/// }
-///
-/// impl LoadFromFileRequest for LoadRequest {
-///     fn path(&self) -> &Path {
-///         self.path.as_ref()
-///     }
-/// }
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, LoadPlugin))
-///     .add_systems(Update, load_from_file_on_request::<LoadRequest>());
-/// ```
-pub fn load_from_file_on_request<R>() -> SystemConfigs
-where
-    R: LoadFromFileRequest + Resource,
-{
-    (
-        file_from_request::<R>
-            .pipe(from_file_dyn)
-            .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
-            .pipe(load)
-            .pipe(insert_into_loaded(Save))
-            .pipe(finish),
-        remove_resource::<R>,
-    )
-        .chain()
-        .distributive_run_if(has_resource::<R>)
-        .in_set(LoadSet::Load)
-}
-
-/// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Event`] is sent.
-///
-/// Note: If multiple events are sent in a single update cycle, only the first one is processed.
-pub fn load_from_file_on_event<R>() -> SystemConfigs
-where
-    R: LoadFromFileRequest + Event,
-{
-    file_from_event::<R>
-        .pipe(from_file_dyn)
-        .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
-        .pipe(load)
-        .pipe(insert_into_loaded(Save))
-        .pipe(finish)
-        .distributive_run_if(has_event::<R>)
-        .in_set(LoadSet::Load)
-}
-
 /// A [`System`] which extracts the path from a [`LoadFromFileRequest`] [`Resource`].
 pub fn file_from_request<R>(request: Res<R>) -> PathBuf
 where
@@ -374,6 +366,11 @@ pub fn hierarchy_post_load(query: Query<(Entity, &Parent)>, mut commands: Comman
     for (entity, old_parent) in &query {
         commands.entity(entity).set_parent(**old_parent);
     }
+}
+
+/// Any type which may be used to trigger [`load_from_file_on_request`] or [`load_from_file_on_event`].
+pub trait LoadFromFileRequest {
+    fn path(&self) -> &Path;
 }
 
 #[cfg(test)]
