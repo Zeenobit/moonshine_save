@@ -128,32 +128,32 @@ pub struct Loaded {
 }
 
 #[derive(Debug)]
-pub enum Error {
+pub enum LoadError {
     Io(io::Error),
     De(ron::de::SpannedError),
     Ron(ron::Error),
     Scene(SceneSpawnError),
 }
 
-impl From<io::Error> for Error {
+impl From<io::Error> for LoadError {
     fn from(e: io::Error) -> Self {
         Self::Io(e)
     }
 }
 
-impl From<ron::de::SpannedError> for Error {
+impl From<ron::de::SpannedError> for LoadError {
     fn from(e: ron::de::SpannedError) -> Self {
         Self::De(e)
     }
 }
 
-impl From<ron::Error> for Error {
+impl From<ron::Error> for LoadError {
     fn from(e: ron::Error) -> Self {
         Self::Ron(e)
     }
 }
 
-impl From<SceneSpawnError> for Error {
+impl From<SceneSpawnError> for LoadError {
     fn from(e: SceneSpawnError) -> Self {
         Self::Scene(e)
     }
@@ -252,7 +252,7 @@ where
 /// A [`System`] which reads [`Saved`] data from a file at given `path`.
 pub fn from_file(
     path: impl Into<PathBuf>,
-) -> impl Fn(Res<AppTypeRegistry>) -> Result<Saved, Error> {
+) -> impl Fn(Res<AppTypeRegistry>) -> Result<Saved, LoadError> {
     let path = path.into();
     move |type_registry| {
         let input = std::fs::read(&path)?;
@@ -271,7 +271,7 @@ pub fn from_file(
 pub fn from_file_dyn(
     In(path): In<PathBuf>,
     type_registry: Res<AppTypeRegistry>,
-) -> Result<Saved, Error> {
+) -> Result<Saved, LoadError> {
     let input = std::fs::read(&path)?;
     let mut deserializer = ron::Deserializer::from_bytes(&input)?;
     let scene = {
@@ -285,9 +285,9 @@ pub fn from_file_dyn(
 
 /// A [`System`] which recursively despawns all entities that match the given `Filter`.
 pub fn unload<Filter: ReadOnlyWorldQuery>(
-    In(result): In<Result<Saved, Error>>,
+    In(result): In<Result<Saved, LoadError>>,
     world: &mut World,
-) -> Result<Saved, Error> {
+) -> Result<Saved, LoadError> {
     let saved = result?;
     let entities: Vec<Entity> = world
         .query_filtered::<Entity, Filter>()
@@ -302,7 +302,10 @@ pub fn unload<Filter: ReadOnlyWorldQuery>(
 }
 
 /// A [`System`] which writes [`Saved`] data into current [`World`].
-pub fn load(In(result): In<Result<Saved, Error>>, world: &mut World) -> Result<Loaded, Error> {
+pub fn load(
+    In(result): In<Result<Saved, LoadError>>,
+    world: &mut World,
+) -> Result<Loaded, LoadError> {
     let Saved { scene } = result?;
     let mut entity_map = EntityMap::default();
     scene.write_to_world(world, &mut entity_map)?;
@@ -312,7 +315,7 @@ pub fn load(In(result): In<Result<Saved, Error>>, world: &mut World) -> Result<L
 /// A [`System`] which inserts a clone of the given [`Bundle`] into all loaded entities.
 pub fn insert_into_loaded(
     bundle: impl Bundle + Clone,
-) -> impl Fn(In<Result<Loaded, Error>>, &mut World) -> Result<Loaded, Error> {
+) -> impl Fn(In<Result<Loaded, LoadError>>, &mut World) -> Result<Loaded, LoadError> {
     move |In(result), world| {
         if let Ok(loaded) = &result {
             for entity in loaded.entity_map.values() {
@@ -328,7 +331,7 @@ pub fn insert_into_loaded(
 /// # Usage
 ///
 /// All load pipelines should end with this system.
-pub fn finish(In(result): In<Result<Loaded, Error>>, world: &mut World) {
+pub fn finish(In(result): In<Result<Loaded, LoadError>>, world: &mut World) {
     match result {
         Ok(loaded) => world.insert_resource(loaded),
         Err(why) => error!("load failed: {why:?}"),

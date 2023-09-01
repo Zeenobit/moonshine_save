@@ -78,18 +78,18 @@ pub struct Saved {
 pub struct Save;
 
 #[derive(Debug)]
-pub enum Error {
+pub enum SaveError {
     Ron(ron::Error),
     Io(io::Error),
 }
 
-impl From<ron::Error> for Error {
+impl From<ron::Error> for SaveError {
     fn from(e: ron::Error) -> Self {
         Self::Ron(e)
     }
 }
 
-impl From<io::Error> for Error {
+impl From<io::Error> for SaveError {
     fn from(e: io::Error) -> Self {
         Self::Io(e)
     }
@@ -252,7 +252,7 @@ pub fn remove_component<T: Component + Reflect>(In(mut saved): In<Saved>) -> Sav
 /// A [`System`] which writes [`Saved`] data into a file at given `path`.
 pub fn into_file(
     path: PathBuf,
-) -> impl Fn(In<Saved>, Res<AppTypeRegistry>) -> Result<Saved, Error> {
+) -> impl Fn(In<Saved>, Res<AppTypeRegistry>) -> Result<Saved, SaveError> {
     move |In(saved), type_registry| {
         let data = saved.scene.serialize_ron(&type_registry)?;
         std::fs::write(&path, data.as_bytes())?;
@@ -265,7 +265,7 @@ pub fn into_file(
 pub fn into_file_dyn(
     In((path, saved)): In<(PathBuf, Saved)>,
     type_registry: Res<AppTypeRegistry>,
-) -> Result<Saved, Error> {
+) -> Result<Saved, SaveError> {
     let data = saved.scene.serialize_ron(&type_registry)?;
     std::fs::write(&path, data.as_bytes())?;
     info!("saved into file: {path:?}");
@@ -276,7 +276,7 @@ pub fn into_file_dyn(
 ///
 /// # Usage
 /// All save pipelines should end with this system.
-pub fn finish(In(result): In<Result<Saved, Error>>, world: &mut World) {
+pub fn finish(In(result): In<Result<Saved, SaveError>>, world: &mut World) {
     match result {
         Ok(saved) => world.insert_resource(saved),
         Err(why) => error!("save failed: {why:?}"),
