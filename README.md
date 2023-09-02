@@ -8,7 +8,85 @@ In Bevy, it is possible to serialize and deserialize a [World] using a [DynamicS
 
 The main issue is that in most common applications, the saved game data is a very minimal subset of the actual scene. Visual and aesthetic elements such as transforms, scene hierarchy, camera, or UI components are typically added to the scene during game start or entity initialization.
 
-This crate aims to solve this issue by providing a framework and a collection of systems for selectively saving and loading a world to disk.
+This crate aims to solve this issue by providing a framework and a collection of systems for selectively saving and loading a world.
+
+## Features
+
+- Clear separation between aesthetics (view/model) and saved state (model)
+- Minimal boilerplate for defining the saved state
+- Hooks for post-processing saved and loaded states
+- Custom save/load pipelines
+- No macros
+
+## Philosophy
+
+A key design goal of this crate is to use concepts borrowed from MVC (Model-View-Controller) architecture to separate the aesthetic elements of the game (view or view-model) from its logical and saved state (model).
+
+To use this crate as intended, you must design your game logic with this separation in mind:
+
+- Use serializable components to represent the saved state of your game and store them on saved entities.
+  - See [Reflect](https://docs.rs/bevy_reflect/latest/bevy_reflect/#the-reflect-trait) for details on how to make components serializable.
+- If needed, define a system which spawns a view entity for each spawned saved entity.
+  - You may want to use [Added](https://docs.rs/bevy/latest/bevy/ecs/query/struct.Added.html) to initialize view entities.
+- Create a link between saved entities and their view entity.
+  - This can be done using a non-serializable component/resource.
+
+As an example, suppose we want to represent a player character in a game.
+Various components are used to represent the logical state of the player, such as `Health`, `Inventory`, or `Weapon`.
+
+Each player is represented using a 2D `SpriteBundle`, which presents the current player state visually.
+
+Traditionally, we might have used a single entity (or a hierarchy) to reppresent the player. This entity would carry all the logical components, such as `Health`, in addition to the `SpriteBundle`:
+
+```rust
+#[derive(Bundle)]
+struct PlayerBundle {
+    health: Health,
+    inventory: Inventory,
+    weapon: Weapon,
+    sprite: SpriteBundle,
+}
+```
+
+A better approach (arguably) would be to store this data in completely separate entities, and associating them via a reference:
+
+```rust
+#[derive(Bundle)]
+struct PlayerBundle {
+    health: Health,
+    inventory: Inventory,
+    weapon: Weapon,
+}
+
+#[derive(Bundle)]
+struct PlayerSpriteBundle {
+    sprite: SpriteBundle,
+    player: Player,
+}
+
+#[derive(Component)] // <-- Not serialized!
+struct Player(Entity);
+
+fn spawn_player_sprite(mut commands: Commands, query: Query<Entity, Added<Player>>) {
+    for entity in query.iter() {
+        commands.spawn(PlayerSpriteBundle {
+            player: Player(entity), // <-- Link
+            ..Default::default()
+        });
+    }
+}
+```
+
+While this approach may seem more verbose at first, it has several advantages:
+- Save data may be tested without a view
+- Save data becomes the single source of truth for the entire game state
+- Save data may be represented using different systems for specialized debugging
+
+Ultimately, it is up to you to decide if the additional complexity of this separation is beneficial to your project or not. This crate is not intended to be a general purpose save solution out of the box.
+
+However, a secondary design goal of this crate is maximum customizability. This crate includes several standard and commonly used save/load pipelines that should be sufficient for most applications. These pipelines are composed of smaller sub-systems which may be used in any desirable configuration with other systems to provide more specialized pipelines.
+
+See [Configuration](#configuration) for details on custom pipelines.
 
 ## Usage
 
@@ -204,10 +282,22 @@ fn save(mut events: EventWriter<SaveRequest>) {
 
 ## Configuration
 
-This crate is designed to be modular and fully configurable. The default save/load pipelines (`save_into_file` and `load_from_file`) are composed of sub-systems which can be used individually in any desirable configuration with other systems. You may refer to their implementation for details on how this can be done.
+Currently, this crate provides the following save/load pipelines:
+
+- `save_into_file` and `load_from_file`<br/>
+    Save into and load from a file unconditionally with a static path
+- `save_into_file_on_request` and `load_from_file_on_request`<br/>
+    Save into and load from a file on a request `Resource` with a dynamic path defined by that resource
+- `save_into_file_on_event` and `load_from_file_on_event`<br/>
+    Save into and load from a file on an `Event` with a dynamic path defined by that event
+
+If your use case does not fall into any of these categories, you may want to create a custom save pipeline. All existing save pipelines are composed of smaller sub-systems which are designed to be piped together.
+
+You may refer to the implementation of these pipelines for examples on how to define a custom pipeline. Their sub-systems may be used in any desirable configuration with other systems, including your own, to fully customize the save/load process.
 
 [World]: https://docs.rs/bevy/latest/bevy/ecs/world/struct.World.html
 [DynamicScene]: https://docs.rs/bevy/latest/bevy/prelude/struct.DynamicScene.html
+[DynamicSceneBuilder]: https://docs.rs/bevy/latest/bevy/prelude/struct.DynamicSceneBuilder.html
 
 ## TODO
 
