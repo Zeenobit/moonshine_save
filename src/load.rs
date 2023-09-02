@@ -217,7 +217,7 @@ pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
 /// app.add_plugins((MinimalPlugins, LoadPlugin))
 ///     .add_systems(Update, load_from_file_on_request::<LoadRequest>());
 /// ```
-pub fn load_from_file_on_request<R>() -> SystemConfigs
+pub fn load_from_file_on_request<R>() -> LoadPipeline
 where
     R: LoadFromFileRequest + Resource,
 {
@@ -235,7 +235,7 @@ where
 /// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Event`] is sent.
 ///
 /// Note: If multiple events are sent in a single update cycle, only the first one is processed.
-pub fn load_from_file_on_event<R>() -> SystemConfigs
+pub fn load_from_file_on_event<R>() -> LoadPipeline
 where
     R: LoadFromFileRequest + Event,
 {

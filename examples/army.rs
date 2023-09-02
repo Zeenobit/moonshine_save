@@ -18,20 +18,24 @@ fn main() {
         // Save and Load plugins are independant.
         // Usually, both are needed:
         .add_plugins((SavePlugin, LoadPlugin))
-        // Register game types for de/serialization:
+        // Register game types for de/serialization
         .register_type::<Soldier>()
         .register_type::<SoldierWeapon>()
         .register_type::<Option<Entity>>()
         .register_type::<WeaponKind>()
-        // Add game systems:
+        // Add gameplay systems:
         .add_systems(Startup, setup)
         .add_systems(Update, (update_text, update_buttons))
         .add_systems(
             Update,
-            (add_melee_button_clicked, add_ranged_button_clicked),
+            (
+                add_melee_button_clicked,
+                add_ranged_button_clicked,
+                load_button_clicked,
+                save_button_clicked,
+            ),
         )
-        // Add save/load systems:
-        .add_systems(Update, (load_button_clicked, save_button_clicked))
+        // Add save/load pipelines:
         .add_systems(PreUpdate, save_into_file_on_request::<SaveRequest>())
         .add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>())
         .run();
