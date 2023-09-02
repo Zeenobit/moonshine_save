@@ -1,9 +1,3 @@
-//! This is a minimal example of a game in which you can build an army of soldiers equipped with
-//! either ranged or melee weapons. The game displays the army composition in text form, by
-//! counting the number of soldiers equipped with either weapon kind.
-//!
-//! The state of this army can be saved into and loaded from disk.
-
 use std::path::Path;
 
 use bevy::prelude::*;
@@ -11,34 +5,45 @@ use bevy_ecs::entity::{EntityMapper, MapEntities};
 use moonshine_save::prelude::*;
 
 const SAVE_PATH: &str = "army.ron";
+const HELP_TEXT: &str =
+    "Use the buttons to spawn a new soldier with either a melee or a ranged weapon. 
+The text displays the army composition by grouping soldiers based on their equipped weapon.
+The state of this army can be saved into and loaded from disk.";
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins)
-        // Save and Load plugins are independant.
-        // Usually, both are needed:
-        .add_plugins((SavePlugin, LoadPlugin))
-        // Register game types for de/serialization
-        .register_type::<Soldier>()
-        .register_type::<SoldierWeapon>()
-        .register_type::<Option<Entity>>()
-        .register_type::<WeaponKind>()
-        // Add gameplay systems:
-        .add_systems(Startup, setup)
-        .add_systems(Update, (update_text, update_buttons))
-        .add_systems(
-            Update,
-            (
-                add_melee_button_clicked,
-                add_ranged_button_clicked,
-                load_button_clicked,
-                save_button_clicked,
-            ),
-        )
-        // Add save/load pipelines:
-        .add_systems(PreUpdate, save_into_file_on_request::<SaveRequest>())
-        .add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>())
-        .run();
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Army".to_string(),
+            resolution: (700., 200.).into(),
+            ..default()
+        }),
+        ..default()
+    }))
+    // Save and Load plugins are independant.
+    // Usually, both are needed:
+    .add_plugins((SavePlugin, LoadPlugin))
+    // Register game types for de/serialization
+    .register_type::<Soldier>()
+    .register_type::<SoldierWeapon>()
+    .register_type::<Option<Entity>>()
+    .register_type::<WeaponKind>()
+    // Add gameplay systems:
+    .add_systems(Startup, setup)
+    .add_systems(Update, (update_text, update_buttons))
+    .add_systems(
+        Update,
+        (
+            add_melee_button_clicked,
+            add_ranged_button_clicked,
+            load_button_clicked,
+            save_button_clicked,
+        ),
+    )
+    // Add save/load pipelines:
+    .add_systems(PreUpdate, save_into_file_on_request::<SaveRequest>())
+    .add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>())
+    .run();
 }
 
 /// Represents a soldier entity within the army.
@@ -123,41 +128,68 @@ fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 
     // Spawn army text
-    commands.spawn((
-        Army,
-        Text2dBundle {
-            text: Text::from_section(
-                "",
-                TextStyle {
-                    font_size: 50.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ),
-            transform: Transform::from_xyz(0.0, 100.0, 0.0),
-            ..default()
-        },
-    ));
 
     // Spawn buttons
     commands
         .spawn(NodeBundle {
             style: Style {
                 width: Val::Percent(100.0),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(20.)),
                 ..default()
             },
             ..default()
         })
-        .with_children(|parent| {
-            spawn_button(parent, "SPAWN MELEE", AddMeleeButton);
-            spawn_space(parent, 20.0);
-            spawn_button(parent, "SPAWN RANGED", AddRangedButton);
-            spawn_space(parent, 100.0);
-            spawn_button(parent, "SAVE", SaveButton);
-            spawn_space(parent, 20.0);
-            spawn_button(parent, "LOAD", LoadButton);
+        .with_children(|root| {
+            root.spawn(TextBundle {
+                text: Text::from_section(
+                    HELP_TEXT,
+                    TextStyle {
+                        font_size: 14.0,
+                        color: Color::WHITE,
+                        ..default()
+                    },
+                ),
+                style: Style {
+                    margin: UiRect::bottom(Val::Px(20.)),
+                    ..default()
+                },
+                ..default()
+            });
+            root.spawn((
+                Army,
+                TextBundle {
+                    text: Text::from_section(
+                        "",
+                        TextStyle {
+                            font_size: 30.0,
+                            color: Color::WHITE,
+                            ..default()
+                        },
+                    ),
+                    style: Style {
+                        margin: UiRect::bottom(Val::Px(20.)),
+                        ..default()
+                    },
+                    ..default()
+                },
+            ));
+
+            // Buttons Row
+            root.spawn(NodeBundle {
+                style: Style {
+                    flex_direction: FlexDirection::Row,
+                    ..default()
+                },
+                ..default()
+            })
+            .with_children(|parent| {
+                spawn_button(parent, "SPAWN MELEE", AddMeleeButton);
+                spawn_button(parent, "SPAWN RANGED", AddRangedButton);
+                spawn_space(parent, Val::Px(20.), Val::Auto);
+                spawn_button(parent, "SAVE", SaveButton);
+                spawn_button(parent, "LOAD", LoadButton);
+            });
         });
 }
 
@@ -166,34 +198,35 @@ fn spawn_button(parent: &mut ChildBuilder, value: impl Into<String>, bundle: imp
         .spawn((
             bundle,
             ButtonBundle {
+                background_color: Color::DARK_GRAY.into(),
                 style: Style {
-                    width: Val::Px(150.0),
-                    height: Val::Px(65.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
+                    margin: UiRect::all(Val::Px(5.)),
+                    padding: UiRect::new(Val::Px(10.), Val::Px(10.), Val::Px(5.), Val::Px(5.)),
                     ..default()
                 },
-                background_color: DEFAULT_BUTTON_COLOR.into(),
                 ..default()
             },
         ))
-        .with_children(|parent| {
-            parent.spawn(TextBundle::from_section(
-                value,
-                TextStyle {
-                    font_size: 20.0,
-                    color: Color::rgb(0.9, 0.9, 0.9),
-                    ..default()
-                },
-            ));
+        .with_children(|fly_button| {
+            fly_button.spawn(TextBundle {
+                text: Text::from_section(
+                    value.into(),
+                    TextStyle {
+                        font_size: 20.,
+                        color: Color::WHITE,
+                        ..default()
+                    },
+                ),
+                ..default()
+            });
         });
 }
 
-fn spawn_space(parent: &mut ChildBuilder, width: f32) {
+fn spawn_space(parent: &mut ChildBuilder, width: Val, height: Val) {
     parent.spawn(NodeBundle {
         style: Style {
-            width: Val::Px(width),
-            height: Val::Auto,
+            width,
+            height,
             ..default()
         },
         ..default()
