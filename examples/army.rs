@@ -4,6 +4,8 @@
 //!
 //! The state of this army can be saved into and loaded from disk.
 
+use std::path::Path;
+
 use bevy::prelude::*;
 use bevy_ecs::entity::{EntityMapper, MapEntities};
 use moonshine_save::prelude::*;
@@ -27,18 +29,8 @@ fn main() {
         .add_systems(Update, (handle_add_melee, handle_add_ranged))
         // Add save/load systems:
         .add_systems(Update, (handle_load, handle_save))
-        .add_systems(
-            PreUpdate,
-            (load_from_file(SAVE_PATH), remove_load_request)
-                .chain()
-                .run_if(should_load),
-        )
-        .add_systems(
-            PreUpdate,
-            (save_into_file(SAVE_PATH), remove_save_request)
-                .chain()
-                .distributive_run_if(should_save),
-        )
+        .add_systems(PreUpdate, save_into_file_on_request::<SaveRequest>())
+        .add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>())
         .run();
 }
 
@@ -68,7 +60,7 @@ impl SoldierBundle {
 struct Soldier;
 
 #[derive(Component, Default, Reflect)]
-#[reflect(Component)]
+#[reflect(Component, MapEntities)]
 struct SoldierWeapon(Option<Entity>);
 
 impl MapEntities for SoldierWeapon {
@@ -276,26 +268,20 @@ fn handle_add_melee(
 #[derive(Resource)]
 struct SaveRequest;
 
+impl SaveIntoFileRequest for SaveRequest {
+    fn path(&self) -> &Path {
+        SAVE_PATH.as_ref()
+    }
+}
+
 /// A resource which is used to invoke the load system.
 #[derive(Resource)]
 struct LoadRequest;
 
-/// Returns true if the save systems should be invoked.
-fn should_save(request: Option<Res<SaveRequest>>) -> bool {
-    request.is_some()
-}
-
-fn remove_save_request(world: &mut World) {
-    world.remove_resource::<SaveRequest>().unwrap();
-}
-
-/// Returns true if the load systems should be invoked.
-fn should_load(request: Option<Res<LoadRequest>>) -> bool {
-    request.is_some()
-}
-
-fn remove_load_request(world: &mut World) {
-    world.remove_resource::<LoadRequest>().unwrap();
+impl LoadFromFileRequest for LoadRequest {
+    fn path(&self) -> &Path {
+        SAVE_PATH.as_ref()
+    }
 }
 
 /// Handle "Save" button press.
