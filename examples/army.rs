@@ -26,9 +26,12 @@ fn main() {
         // Add game systems:
         .add_systems(Startup, setup)
         .add_systems(Update, (update_text, update_buttons))
-        .add_systems(Update, (handle_add_melee, handle_add_ranged))
+        .add_systems(
+            Update,
+            (add_melee_button_clicked, add_ranged_button_clicked),
+        )
         // Add save/load systems:
-        .add_systems(Update, (handle_load, handle_save))
+        .add_systems(Update, (load_button_clicked, save_button_clicked))
         .add_systems(PreUpdate, save_into_file_on_request::<SaveRequest>())
         .add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>())
         .run();
@@ -99,10 +102,6 @@ use WeaponKind::*;
 #[derive(Component)]
 struct Army;
 
-const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
-const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
-const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
-
 #[derive(Component)]
 struct AddMeleeButton;
 
@@ -126,7 +125,7 @@ fn setup(mut commands: Commands) {
             text: Text::from_section(
                 "",
                 TextStyle {
-                    font_size: 80.0,
+                    font_size: 50.0,
                     color: Color::WHITE,
                     ..default()
                 },
@@ -148,13 +147,13 @@ fn setup(mut commands: Commands) {
             ..default()
         })
         .with_children(|parent| {
-            spawn_button(parent, "Add Melee", AddMeleeButton);
+            spawn_button(parent, "SPAWN MELEE", AddMeleeButton);
             spawn_space(parent, 20.0);
-            spawn_button(parent, "Add Ranged", AddRangedButton);
+            spawn_button(parent, "SPAWN RANGED", AddRangedButton);
             spawn_space(parent, 100.0);
-            spawn_button(parent, "Save", SaveButton);
+            spawn_button(parent, "SAVE", SaveButton);
             spawn_space(parent, 20.0);
-            spawn_button(parent, "Load", LoadButton);
+            spawn_button(parent, "LOAD", LoadButton);
         });
 }
 
@@ -170,7 +169,7 @@ fn spawn_button(parent: &mut ChildBuilder, value: impl Into<String>, bundle: imp
                     align_items: AlignItems::Center,
                     ..default()
                 },
-                background_color: NORMAL_BUTTON.into(),
+                background_color: DEFAULT_BUTTON_COLOR.into(),
                 ..default()
             },
         ))
@@ -178,7 +177,7 @@ fn spawn_button(parent: &mut ChildBuilder, value: impl Into<String>, bundle: imp
             parent.spawn(TextBundle::from_section(
                 value,
                 TextStyle {
-                    font_size: 30.0,
+                    font_size: 20.0,
                     color: Color::rgb(0.9, 0.9, 0.9),
                     ..default()
                 },
@@ -223,6 +222,10 @@ fn update_text(
         format!("Soldiers: {melee_count} Melee, {ranged_count} Ranged");
 }
 
+const DEFAULT_BUTTON_COLOR: Color = Color::rgb(0.15, 0.15, 0.15);
+const HOVERED_BUTTON_COLOR: Color = Color::rgb(0.25, 0.25, 0.25);
+const PRESSED_BUTTON_COLOR: Color = Color::rgb(0.35, 0.75, 0.35);
+
 /// Handle color feedback for buttons.
 fn update_buttons(
     mut interaction_query: Query<(&Interaction, &mut BackgroundColor), Changed<Interaction>>,
@@ -230,20 +233,19 @@ fn update_buttons(
     for (interaction, mut color) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
-                *color = PRESSED_BUTTON.into();
+                *color = PRESSED_BUTTON_COLOR.into();
             }
             Interaction::Hovered => {
-                *color = HOVERED_BUTTON.into();
+                *color = HOVERED_BUTTON_COLOR.into();
             }
             Interaction::None => {
-                *color = NORMAL_BUTTON.into();
+                *color = DEFAULT_BUTTON_COLOR.into();
             }
         }
     }
 }
 
-/// Handle "Add Ranged" button press.
-fn handle_add_ranged(
+fn add_ranged_button_clicked(
     query: Query<&Interaction, (With<AddRangedButton>, Changed<Interaction>)>,
     mut commands: Commands,
 ) {
@@ -253,14 +255,31 @@ fn handle_add_ranged(
     }
 }
 
-/// Handle "Add Melee" button press.
-fn handle_add_melee(
+fn add_melee_button_clicked(
     query: Query<&Interaction, (With<AddMeleeButton>, Changed<Interaction>)>,
     mut commands: Commands,
 ) {
     if let Ok(Interaction::Pressed) = query.get_single() {
         let weapon = commands.spawn(WeaponBundle::new(Melee)).id();
         commands.spawn(SoldierBundle::new(weapon));
+    }
+}
+
+fn save_button_clicked(
+    query: Query<&Interaction, (With<SaveButton>, Changed<Interaction>)>,
+    mut commands: Commands,
+) {
+    if let Ok(Interaction::Pressed) = query.get_single() {
+        commands.insert_resource(SaveRequest);
+    }
+}
+
+fn load_button_clicked(
+    query: Query<&Interaction, (With<LoadButton>, Changed<Interaction>)>,
+    mut commands: Commands,
+) {
+    if let Ok(Interaction::Pressed) = query.get_single() {
+        commands.insert_resource(LoadRequest);
     }
 }
 
@@ -281,25 +300,5 @@ struct LoadRequest;
 impl LoadFromFileRequest for LoadRequest {
     fn path(&self) -> &Path {
         SAVE_PATH.as_ref()
-    }
-}
-
-/// Handle "Save" button press.
-fn handle_save(
-    query: Query<&Interaction, (With<SaveButton>, Changed<Interaction>)>,
-    mut commands: Commands,
-) {
-    if let Ok(Interaction::Pressed) = query.get_single() {
-        commands.insert_resource(SaveRequest);
-    }
-}
-
-/// Handle "Load" button press.
-fn handle_load(
-    query: Query<&Interaction, (With<LoadButton>, Changed<Interaction>)>,
-    mut commands: Commands,
-) {
-    if let Ok(Interaction::Pressed) = query.get_single() {
-        commands.insert_resource(LoadRequest);
     }
 }
