@@ -38,7 +38,7 @@ Each player is represented using a 2D `SpriteBundle`, which presents the current
 
 Traditionally, we might have used a single entity (or a hierarchy) to reppresent the player. This entity would carry all the logical components, such as `Health`, in addition to the `SpriteBundle`:
 
-```rust
+```rust,ignore
 #[derive(Bundle)]
 struct PlayerBundle {
     health: Health,
@@ -50,7 +50,7 @@ struct PlayerBundle {
 
 A better approach (arguably) would be to store this data in completely separate entities, and associating them via a reference:
 
-```rust
+```rust,ignore
 #[derive(Bundle)]
 struct PlayerBundle {
     health: Health,
