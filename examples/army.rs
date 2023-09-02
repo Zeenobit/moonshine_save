@@ -123,7 +123,7 @@ struct SaveButton;
 #[derive(Component)]
 struct LoadButton;
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(mut commands: Commands) {
     // Spawn camera
     commands.spawn(Camera2dBundle::default());
 
@@ -134,9 +134,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             text: Text::from_section(
                 "",
                 TextStyle {
-                    font: asset_server.load("fonts/RobotoCondensed-Regular.ttf"),
                     font_size: 80.0,
                     color: Color::WHITE,
+                    ..default()
                 },
             ),
             transform: Transform::from_xyz(0.0, 100.0, 0.0),
@@ -156,22 +156,17 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..default()
         })
         .with_children(|parent| {
-            spawn_button(parent, &asset_server, "Add Melee", AddMeleeButton);
+            spawn_button(parent, "Add Melee", AddMeleeButton);
             spawn_space(parent, 20.0);
-            spawn_button(parent, &asset_server, "Add Ranged", AddRangedButton);
+            spawn_button(parent, "Add Ranged", AddRangedButton);
             spawn_space(parent, 100.0);
-            spawn_button(parent, &asset_server, "Save", SaveButton);
+            spawn_button(parent, "Save", SaveButton);
             spawn_space(parent, 20.0);
-            spawn_button(parent, &asset_server, "Load", LoadButton);
+            spawn_button(parent, "Load", LoadButton);
         });
 }
 
-fn spawn_button(
-    parent: &mut ChildBuilder,
-    asset_server: &AssetServer,
-    value: impl Into<String>,
-    bundle: impl Bundle,
-) {
+fn spawn_button(parent: &mut ChildBuilder, value: impl Into<String>, bundle: impl Bundle) {
     parent
         .spawn((
             bundle,
@@ -191,9 +186,9 @@ fn spawn_button(
             parent.spawn(TextBundle::from_section(
                 value,
                 TextStyle {
-                    font: asset_server.load("fonts/RobotoCondensed-Regular.ttf"),
                     font_size: 30.0,
                     color: Color::rgb(0.9, 0.9, 0.9),
+                    ..default()
                 },
             ));
         });
