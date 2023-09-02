@@ -1,10 +1,5 @@
 use bevy::prelude::*;
-use bevy_ecs::{
-    entity::{EntityMapper, MapEntities},
-    reflect::ReflectMapEntities,
-};
-
-use crate::prelude::*;
+use moonshine_save::prelude::*;
 
 const SAVE_PATH: &str = "test.ron";
 
@@ -99,7 +94,7 @@ fn it_works() {
         assert_eq!(world.query::<&Foo>().single(&world).0, 42);
         assert_eq!(world.query::<&FooBar>().single(&world).0, bar);
         assert!(world.entity(bar).contains::<Save>());
-    }
 
-    std::fs::remove_file(SAVE_PATH).unwrap();
+        std::fs::remove_file(SAVE_PATH).unwrap();
+    }
 }

@@ -15,7 +15,9 @@ pub mod prelude {
         save_into_file, save_into_file_on_event, save_into_file_on_request, Save, SaveError,
         SaveIntoFileRequest, SavePlugin, SaveSet, Saved,
     };
-}
 
-#[cfg(test)]
-mod tests;
+    pub use bevy_ecs::{
+        entity::{EntityMapper, MapEntities},
+        reflect::ReflectMapEntities,
+    };
+}
