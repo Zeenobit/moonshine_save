@@ -123,12 +123,15 @@ impl EntityFilter {
 #[derive(Default)]
 pub struct SaveFilter {
     pub entities: EntityFilter,
-    pub scene: SceneFilter,
+    pub resources: SceneFilter,
+    pub components: SceneFilter,
 }
 
 pub fn filter<Filter: ReadOnlyWorldQuery>(entities: Query<Entity, Filter>) -> SaveFilter {
     SaveFilter {
         entities: EntityFilter::allow(&entities),
+        // TODO: We do not want to save any Bevy resources by default. They may not be serializable.
+        resources: SceneFilter::deny_all(),
         ..Default::default()
     }
 }
@@ -204,7 +207,6 @@ pub fn save_into_file_on_request<R: SaveIntoFileRequest + Resource>() -> SavePip
 /// # Warning
 /// If multiple events are sent in a single update cycle, only the first one is processed.
 pub fn save_into_file_on_event<R: SaveIntoFileRequest + Event>() -> SavePipeline {
-    // Note: This is a single system, but still returned as `SystemConfigs` for easier refactoring.
     filter::<With<Save>>
         .pipe(save)
         .pipe(file_from_event::<R>)
@@ -221,7 +223,9 @@ pub fn save_into_file_on_event<R: SaveIntoFileRequest + Event>() -> SavePipeline
 /// All save pipelines should start with this system.
 pub fn save(In(filter): In<SaveFilter>, world: &World) -> Saved {
     let mut builder = DynamicSceneBuilder::from_world(world);
-    builder.with_filter(filter.scene);
+    builder.with_filter(filter.components);
+    builder.with_resource_filter(filter.resources);
+    builder.extract_resources();
     match filter.entities {
         EntityFilter::Any => {}
         EntityFilter::Allow(entities) => {
