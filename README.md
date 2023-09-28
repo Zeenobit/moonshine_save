@@ -53,6 +53,7 @@ A better approach (arguably) would be to store this data in completely separate 
 ```rust,ignore
 #[derive(Bundle)]
 struct PlayerBundle {
+    player: Player,
     health: Health,
     inventory: Inventory,
     weapon: Weapon,
@@ -60,17 +61,19 @@ struct PlayerBundle {
 
 #[derive(Bundle)]
 struct PlayerSpriteBundle {
+    player: PlayerSprite,
     sprite: SpriteBundle,
-    player: Player,
 }
 
 #[derive(Component)] // <-- Not serialized!
-struct Player(Entity);
+struct PlayerSprite {
+    player_entity: Entity
+}
 
 fn spawn_player_sprite(mut commands: Commands, query: Query<Entity, Added<Player>>) {
-    for entity in query.iter() {
+    for player_entity in query.iter() {
         commands.spawn(PlayerSpriteBundle {
-            player: Player(entity), // <-- Link
+            player: PlayerSprite { player_entity }, // <-- Link
             ..Default::default()
         });
     }
