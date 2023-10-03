@@ -13,7 +13,7 @@
 //! #   let mut app = App::new();
 //! #   app.add_plugins((MinimalPlugins, SavePlugin))
 //! #       .register_type::<Data>()
-//! #       .add_systems(PreUpdate, save_into_file("example.ron"));
+//! #       .add_systems(PreUpdate, save_default().into_file("example.ron"));
 //! #   app.world.spawn((Data(12), Save));
 //! #   app.update();
 //! # }
