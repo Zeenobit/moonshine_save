@@ -615,4 +615,30 @@ mod tests {
 
         remove_file(PATH).unwrap();
     }
+
+    #[test]
+    fn test_save_without_component() {
+        pub const PATH: &str = "test_save_without_component.ron";
+
+        #[derive(Component, Default, Reflect)]
+        #[reflect(Component)]
+        struct Exclude;
+
+        let mut app = app();
+        app.add_systems(
+            PreUpdate,
+            save_default()
+                .exclude_component::<Exclude>()
+                .into_file(PATH),
+        );
+
+        app.world.spawn((Dummy, Exclude, Save));
+        app.update();
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Dummy"));
+        assert!(!data.contains("Exclude"));
+
+        remove_file(PATH).unwrap();
+    }
 }
