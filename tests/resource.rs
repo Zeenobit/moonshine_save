@@ -1,9 +1,5 @@
 use bevy::prelude::*;
-use bevy_ecs::query::ReadOnlyWorldQuery;
-use moonshine_save::{
-    prelude::*,
-    save::{SaveFilter, SavePipeline},
-};
+use moonshine_save::prelude::*;
 
 const SAVE_PATH: &str = "test_resource.ron";
 
@@ -19,33 +15,16 @@ fn app() -> App {
     app
 }
 
-fn filter_with_resources<Filter: ReadOnlyWorldQuery>(
-    entities: Query<Entity, Filter>,
-) -> SaveFilter {
-    use moonshine_save::save::*;
-    let mut resources = SceneFilter::deny_all();
-    resources.allow::<Foo>();
-    SaveFilter {
-        entities: EntityFilter::allow(&entities),
-        resources,
-        ..Default::default()
-    }
-}
-
-fn save_into_file_with_resources(path: &str) -> SavePipeline {
-    use moonshine_save::save::*;
-    filter_with_resources::<With<Save>>
-        .pipe(save_scene)
-        .pipe(into_file(path.into()))
-        .pipe(finish)
-        .in_set(SaveSet::Save)
-}
-
 #[test]
 fn it_works() {
     {
         let mut app = app();
-        app.add_systems(PreUpdate, save_into_file_with_resources(SAVE_PATH));
+        app.add_systems(
+            PreUpdate,
+            save_default()
+                .include_resource::<Foo>()
+                .into_file(SAVE_PATH),
+        );
 
         app.insert_resource(Foo);
 

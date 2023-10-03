@@ -12,9 +12,11 @@ pub mod prelude {
         LoadFromFileRequest, LoadPlugin, LoadSet, Loaded, Unload,
     };
     pub use crate::save::{
-        save_into_file, save_into_file_on_event, save_into_file_on_request, Save, SaveError,
-        SaveIntoFileRequest, SavePlugin, SaveSet, Saved,
+        save, save_all, save_default, Save, SaveError, SaveIntoFileRequest, SavePlugin, SaveSet,
+        Saved,
     };
+
+    pub use crate::save::{save_into_file, save_into_file_on_event, save_into_file_on_request};
 
     pub use bevy_ecs::{
         entity::{EntityMapper, MapEntities},

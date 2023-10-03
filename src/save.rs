@@ -185,7 +185,7 @@ pub type SavePipeline = SystemConfigs;
 /// }
 /// ```
 pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
-    save_default().always(path)
+    save_default().into_file(path)
 }
 
 /// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Resource`] is present.
@@ -212,15 +212,15 @@ pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
 ///     .add_systems(Update, save_into_file_on_request::<SaveRequest>());
 /// ```
 pub fn save_into_file_on_request<R: SaveIntoFileRequest + Resource>() -> SavePipeline {
-    save_default().on_request::<R>()
+    save_default().into_file_on_request::<R>()
 }
 
 /// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Event`] is sent.
 ///
 /// # Warning
 /// If multiple events are sent in a single update cycle, only the first one is processed.
-pub fn save_into_file_on_event<E: SaveIntoFileRequest + Event>() -> SavePipeline {
-    save_default().on_event::<E>()
+pub fn save_into_file_on_event<R: SaveIntoFileRequest + Event>() -> SavePipeline {
+    save_default().into_file_on_event::<R>()
 }
 
 /// A [`System`] which creates [`Saved`] data from all entities with given `Filter`.
@@ -364,7 +364,7 @@ where
         self
     }
 
-    pub fn always(self, path: impl Into<PathBuf>) -> SavePipeline {
+    pub fn into_file(self, path: impl Into<PathBuf>) -> SavePipeline {
         let Self { scene, .. } = self;
         (move || scene.clone())
             .pipe(filter_entities::<F>)
@@ -374,7 +374,7 @@ where
             .in_set(SaveSet::Save)
     }
 
-    pub fn on_request<R: SaveIntoFileRequest + Resource>(self) -> SavePipeline {
+    pub fn into_file_on_request<R: SaveIntoFileRequest + Resource>(self) -> SavePipeline {
         let Self { scene, .. } = self;
         (move || scene.clone())
             .pipe(filter_entities::<F>)
@@ -387,15 +387,15 @@ where
             .in_set(SaveSet::Save)
     }
 
-    pub fn on_event<E: SaveIntoFileRequest + Event>(self) -> SavePipeline {
+    pub fn into_file_on_event<R: SaveIntoFileRequest + Event>(self) -> SavePipeline {
         let Self { scene, .. } = self;
         (move || scene.clone())
             .pipe(filter_entities::<F>)
             .pipe(save_scene)
-            .pipe(file_from_event::<E>)
+            .pipe(file_from_event::<R>)
             .pipe(into_file_dyn)
             .pipe(finish)
-            .run_if(has_event::<E>)
+            .run_if(has_event::<R>)
             .in_set(SaveSet::Save)
     }
 }
@@ -500,7 +500,7 @@ mod tests {
             .insert_resource(Dummy)
             .add_systems(
                 Update,
-                save_default().include_resource::<Dummy>().always(PATH),
+                save_default().include_resource::<Dummy>().into_file(PATH),
             );
 
         app.update();
