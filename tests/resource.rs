@@ -35,7 +35,7 @@ fn filter_with_resources<Filter: ReadOnlyWorldQuery>(
 fn save_into_file_with_resources(path: &str) -> SavePipeline {
     use moonshine_save::save::*;
     filter_with_resources::<With<Save>>
-        .pipe(save)
+        .pipe(save_scene)
         .pipe(into_file(path.into()))
         .pipe(finish)
         .in_set(SaveSet::Save)

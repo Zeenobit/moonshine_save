@@ -24,6 +24,7 @@
 
 use std::{
     io,
+    marker::PhantomData,
     path::{Path, PathBuf},
 };
 
@@ -95,7 +96,7 @@ impl From<io::Error> for SaveError {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub enum EntityFilter {
     #[default]
     Any,
@@ -120,11 +121,23 @@ impl EntityFilter {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone)]
 pub struct SaveFilter {
     pub entities: EntityFilter,
     pub resources: SceneFilter,
     pub components: SceneFilter,
+}
+
+impl Default for SaveFilter {
+    fn default() -> Self {
+        SaveFilter {
+            entities: EntityFilter::default(),
+            // By default, save all components on all saved entities.
+            components: SceneFilter::allow_all(),
+            // By default, do not save any resources. Most Bevy resources are not safely serializable.
+            resources: SceneFilter::deny_all(),
+        }
+    }
 }
 
 pub fn filter<Filter: ReadOnlyWorldQuery>(entities: Query<Entity, Filter>) -> SaveFilter {
@@ -134,6 +147,17 @@ pub fn filter<Filter: ReadOnlyWorldQuery>(entities: Query<Entity, Filter>) -> Sa
         resources: SceneFilter::deny_all(),
         ..Default::default()
     }
+}
+
+pub fn filter_entities<F: ReadOnlyWorldQuery>(
+    In(mut filter): In<SaveFilter>,
+    entities: Query<Entity, F>,
+) -> SaveFilter
+where
+    F: 'static,
+{
+    filter.entities = EntityFilter::allow(&entities);
+    filter
 }
 
 /// A collection of systems ([`SystemConfigs`]) which perform the save process.
@@ -161,11 +185,7 @@ pub type SavePipeline = SystemConfigs;
 /// }
 /// ```
 pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
-    filter::<With<Save>>
-        .pipe(save)
-        .pipe(into_file(path.into()))
-        .pipe(finish)
-        .in_set(SaveSet::Save)
+    save_default().always(path)
 }
 
 /// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Resource`] is present.
@@ -192,28 +212,15 @@ pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
 ///     .add_systems(Update, save_into_file_on_request::<SaveRequest>());
 /// ```
 pub fn save_into_file_on_request<R: SaveIntoFileRequest + Resource>() -> SavePipeline {
-    filter::<With<Save>>
-        .pipe(save)
-        .pipe(file_from_request::<R>)
-        .pipe(into_file_dyn)
-        .pipe(finish)
-        .pipe(remove_resource::<R>)
-        .run_if(has_resource::<R>)
-        .in_set(SaveSet::Save)
+    save_default().on_request::<R>()
 }
 
 /// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Event`] is sent.
 ///
 /// # Warning
 /// If multiple events are sent in a single update cycle, only the first one is processed.
-pub fn save_into_file_on_event<R: SaveIntoFileRequest + Event>() -> SavePipeline {
-    filter::<With<Save>>
-        .pipe(save)
-        .pipe(file_from_event::<R>)
-        .pipe(into_file_dyn)
-        .pipe(finish)
-        .run_if(has_event::<R>)
-        .in_set(SaveSet::Save)
+pub fn save_into_file_on_event<E: SaveIntoFileRequest + Event>() -> SavePipeline {
+    save_default().on_event::<E>()
 }
 
 /// A [`System`] which creates [`Saved`] data from all entities with given `Filter`.
@@ -221,7 +228,7 @@ pub fn save_into_file_on_event<R: SaveIntoFileRequest + Event>() -> SavePipeline
 /// # Usage
 ///
 /// All save pipelines should start with this system.
-pub fn save(In(filter): In<SaveFilter>, world: &World) -> Saved {
+pub fn save_scene(In(filter): In<SaveFilter>, world: &World) -> Saved {
     let mut builder = DynamicSceneBuilder::from_world(world);
     builder.with_filter(filter.components);
     builder.with_resource_filter(filter.resources);
@@ -244,6 +251,7 @@ pub fn save(In(filter): In<SaveFilter>, world: &World) -> Saved {
 }
 
 /// A [`System`] which removes a given component from [`Saved`] data.
+#[deprecated(note = "use `SaveFilter` instead")]
 pub fn remove_component<T: Component + Reflect>(In(mut saved): In<Saved>) -> Saved {
     for entity in saved.scene.entities.iter_mut() {
         entity
@@ -320,6 +328,76 @@ where
 pub trait SaveIntoFileRequest {
     /// Path of the file to save into.
     fn path(&self) -> &Path;
+}
+
+pub struct SavePipelineBuilder<F: ReadOnlyWorldQuery> {
+    query: PhantomData<F>,
+    scene: SaveFilter,
+}
+
+pub fn save<F: ReadOnlyWorldQuery>() -> SavePipelineBuilder<F> {
+    SavePipelineBuilder {
+        query: PhantomData,
+        scene: Default::default(),
+    }
+}
+
+pub fn save_default() -> SavePipelineBuilder<With<Save>> {
+    save()
+}
+
+pub fn save_all() -> SavePipelineBuilder<()> {
+    save()
+}
+
+impl<F: ReadOnlyWorldQuery> SavePipelineBuilder<F>
+where
+    F: 'static,
+{
+    pub fn include_resource<R: Resource>(mut self) -> Self {
+        self.scene.resources.allow::<R>();
+        self
+    }
+
+    pub fn exclude_component<T: Component>(mut self) -> Self {
+        self.scene.components.deny::<T>();
+        self
+    }
+
+    pub fn always(self, path: impl Into<PathBuf>) -> SavePipeline {
+        let Self { scene, .. } = self;
+        (move || scene.clone())
+            .pipe(filter_entities::<F>)
+            .pipe(save_scene)
+            .pipe(into_file(path.into()))
+            .pipe(finish)
+            .in_set(SaveSet::Save)
+    }
+
+    pub fn on_request<R: SaveIntoFileRequest + Resource>(self) -> SavePipeline {
+        let Self { scene, .. } = self;
+        (move || scene.clone())
+            .pipe(filter_entities::<F>)
+            .pipe(save_scene)
+            .pipe(file_from_request::<R>)
+            .pipe(into_file_dyn)
+            .pipe(finish)
+            .pipe(remove_resource::<R>)
+            .run_if(has_resource::<R>)
+            .in_set(SaveSet::Save)
+    }
+
+    pub fn on_event<E: SaveIntoFileRequest + Event>(self) -> SavePipeline {
+        let Self { scene, .. } = self;
+        (move || scene.clone())
+            .pipe(filter_entities::<F>)
+            .pipe(save_scene)
+            .pipe(file_from_event::<E>)
+            .pipe(into_file_dyn)
+            .pipe(finish)
+            .run_if(has_event::<E>)
+            .in_set(SaveSet::Save)
+    }
 }
 
 #[cfg(test)]
@@ -401,6 +479,30 @@ mod tests {
 
         app.world.send_event(SaveRequest);
         app.world.spawn((Dummy, Save));
+        app.update();
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Dummy"));
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_save_resource() {
+        pub const PATH: &str = "test_save_resource.ron";
+
+        #[derive(Resource, Default, Reflect)]
+        #[reflect(Resource)]
+        struct Dummy;
+
+        let mut app = app();
+        app.register_type::<Dummy>()
+            .insert_resource(Dummy)
+            .add_systems(
+                Update,
+                save_default().include_resource::<Dummy>().always(PATH),
+            );
+
         app.update();
 
         let data = read_to_string(PATH).unwrap();
