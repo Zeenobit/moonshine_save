@@ -125,21 +125,50 @@ app.add_plugins(SavePlugin)
     .register_type::<Level>();
 ```
 
-Finally, to invoke the save process, you must add a save pipeline. The default save pipeline is `save_into_file`:
+Finally, to invoke the save process, you must define a `SavePipeline`. Each save pipeline is a collection of piped systems.
+
+You can define the start of a save pipeline using `save_default` which saves all entities with a `Save` component.
+Finish the save pipeline by calling `.into_file()` to store the saved data into a file with a static path:
 
 ```rust,ignore
-app.add_systems(PreUpdate, save_into_file("saved.ron"));
+app.add_systems(PreUpdate, save_default().into_file("saved.ron"));
 ```
 
-When used on its own, `save_into_file` would save the world state on every application update. This is often undesirable because you typically want save to happen at specific times. To do this, you can combine `save_into_file` with `run_if`:
+When used on its own, this pipeline would save the world state on every application update. This is often undesirable because you typically want save to happen at specific times.
+To do this, you can combine the output system with `run_if`:
 
 ```rust,ignore
-app.add_systems(PreUpdate, save_into_file("saved.ron").run_if(should_save));
+app.add_systems(PreUpdate, save_default().into_file("saved.ron").run_if(should_save));
 
 fn should_save( /* ... */ ) -> bool {
     todo!()
 }
 ```
+
+#### Save Resources
+
+To include resources into the save pipeline, use `.include_resource<R>`:
+
+```rust,ignore
+app.add_systems(PreUpdate, save_default().include_resource::<R>().into_file("saved.ron"));
+```
+
+#### Exclude Components
+
+To exclude components from the save pipeline, use `.exclude_component<T>`:
+
+```rust,ignore
+app.add_systems(PreUpdate, save_default().exclude_component::<T>().into_file("saved.ron"));
+```
+
+#### Custom Entity Filter
+
+To select components with different components other than `Save`, start the pipeline with `save<F>` and a custom query filter:
+
+```rust,ignore
+app.add_systems(PreUpdate, save::<With<T>>().into_file("saved.ron"));
+```
+
 
 ### Load
 
@@ -228,7 +257,7 @@ See [examples/army.rs](examples/army.rs) for a minimal application which demonst
 
 In the examples provided, the save file path is often static (i.e. known at compile time). However, in some applications, it may be necessary to save into a path selected at runtime.
 
-You may use the provided `SaveIntoFileRequest` and `LoadFromFileRequest` traits to achieve this. Your save/load request may either be a `Resource` or an `Event`.
+You can use `SaveIntoFileRequest` and `LoadFromFileRequest` traits to achieve this. Your save/load request may either be a `Resource` or an `Event`.
 
 ```rust,ignore
 // Save request with a dynamic path
@@ -256,10 +285,11 @@ impl LoadFromFileRequest for LoadRequest {
 }
 ```
 
-You may use these resources in conjunction with the provided `save_info_file_on_request` and `load_from_file_on_request` save pipelines to save/load into a dynamic path:
+You may use this in conjunction with `.into_file_on_request()` in your save pipeline:
 
 ```rust,ignore
-app.add_systems(save_into_file_on_request::<SaveRequest>());
+app.add_systems(PreUpdate, save_default().into_file_on_request::<SaveRequest>());
+app.add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>());
 ```
 
 Then, you can invoke a save by inserting the request as a resource:
@@ -268,35 +298,26 @@ Then, you can invoke a save by inserting the request as a resource:
 commands.insert_resource(SaveRequest { path: "saved.ron".into() });
 ```
 
-To use an `Event` for save/load requests, you may use `save_into_file_on_event` and `load_from_file_on_event` save pipelines instead:
+```rust,ignore
+commands.insert_resource(LoadRequest { path: "saved.ron".into() });
+```
+
+Similarly, to use an `Event` for save/load requests, you may add `into_file_on_event` in the save pipeline and use `load_from_file_on_event` load pipeline instead:
 
 ```rust,ignore
 app.add_event(SaveRequest)
-    .add_systems(save_into_file_on_event::<SaveRequest>());
+    .add_event(LoadRequest)
+    .add_systems(PreUpdate, save_default().into_file_on_event::<SaveRequest>())    
+    .add_systems(PreUpdate, load_from_file_on_event::<SaveRequest>());
 ```
 
-Then, you can invoke a save by sending the request as an event:
+Then, you can invoke a save/load by sending the request as an event:
 
 ```rust,ignore
 fn save(mut events: EventWriter<SaveRequest>) {
     events.send(SaveRequest { path: "saved.ron".into() });
 }
 ```
-
-## Configuration
-
-Currently, this crate provides the following save/load pipelines:
-
-- `save_into_file` and `load_from_file`<br/>
-    Save into and load from a file unconditionally with a static path
-- `save_into_file_on_request` and `load_from_file_on_request`<br/>
-    Save into and load from a file on a request `Resource` with a dynamic path defined by that resource
-- `save_into_file_on_event` and `load_from_file_on_event`<br/>
-    Save into and load from a file on an `Event` with a dynamic path defined by that event
-
-If your use case does not fall into any of these categories, you may want to create a custom save pipeline. All existing save pipelines are composed of smaller sub-systems which are designed to be piped together.
-
-You may refer to the implementation of these pipelines for examples on how to define a custom pipeline. Their sub-systems may be used in any desirable configuration with other systems, including your own, to fully customize the save/load process.
 
 [World]: https://docs.rs/bevy/latest/bevy/ecs/world/struct.World.html
 [DynamicScene]: https://docs.rs/bevy/latest/bevy/prelude/struct.DynamicScene.html
