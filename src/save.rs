@@ -184,6 +184,7 @@ pub type SavePipeline = SystemConfigs;
 ///     todo!()
 /// }
 /// ```
+#[deprecated(note = "see `SavePipelineBuilder`")]
 pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
     save_default().into_file(path)
 }
@@ -211,6 +212,7 @@ pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
 /// app.add_plugins((MinimalPlugins, SavePlugin))
 ///     .add_systems(Update, save_into_file_on_request::<SaveRequest>());
 /// ```
+#[deprecated(note = "see `SavePipelineBuilder`")]
 pub fn save_into_file_on_request<R: SaveIntoFileRequest + Resource>() -> SavePipeline {
     save_default().into_file_on_request::<R>()
 }
@@ -219,6 +221,7 @@ pub fn save_into_file_on_request<R: SaveIntoFileRequest + Resource>() -> SavePip
 ///
 /// # Warning
 /// If multiple events are sent in a single update cycle, only the first one is processed.
+#[deprecated(note = "see `SavePipelineBuilder`")]
 pub fn save_into_file_on_event<R: SaveIntoFileRequest + Event>() -> SavePipeline {
     save_default().into_file_on_event::<R>()
 }
@@ -423,7 +426,7 @@ mod tests {
     fn test_save_into_file() {
         pub const PATH: &str = "test_save.ron";
         let mut app = app();
-        app.add_systems(Update, save_into_file(PATH));
+        app.add_systems(Update, save_default().into_file(PATH));
 
         app.world.spawn((Dummy, Save));
         app.update();
@@ -448,7 +451,10 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_systems(PreUpdate, save_into_file_on_request::<SaveRequest>());
+        app.add_systems(
+            PreUpdate,
+            save_default().into_file_on_request::<SaveRequest>(),
+        );
 
         app.world.insert_resource(SaveRequest);
         app.world.spawn((Dummy, Save));
@@ -474,8 +480,10 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_event::<SaveRequest>()
-            .add_systems(PreUpdate, save_into_file_on_event::<SaveRequest>());
+        app.add_event::<SaveRequest>().add_systems(
+            PreUpdate,
+            save_default().into_file_on_event::<SaveRequest>(),
+        );
 
         app.world.send_event(SaveRequest);
         app.world.spawn((Dummy, Save));

@@ -487,14 +487,14 @@ mod tests {
 
         use bevy::prelude::*;
 
-        use crate::save::{save_into_file, SavePlugin};
+        use crate::save::{save_default, SavePlugin};
 
         pub const PATH: &str = "test_load_hierarchy.ron";
 
         {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, HierarchyPlugin, SavePlugin))
-                .add_systems(PreUpdate, save_into_file(PATH));
+                .add_systems(PreUpdate, save_default().into_file(PATH));
 
             let entity = app
                 .world

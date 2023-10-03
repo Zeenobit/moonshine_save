@@ -16,8 +16,6 @@ pub mod prelude {
         Saved,
     };
 
-    pub use crate::save::{save_into_file, save_into_file_on_event, save_into_file_on_request};
-
     pub use bevy_ecs::{
         entity::{EntityMapper, MapEntities},
         reflect::ReflectMapEntities,

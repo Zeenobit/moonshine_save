@@ -41,7 +41,10 @@ fn main() {
         ),
     )
     // Add save/load pipelines:
-    .add_systems(PreUpdate, save_into_file_on_request::<SaveRequest>())
+    .add_systems(
+        PreUpdate,
+        save_default().into_file_on_request::<SaveRequest>(),
+    )
     .add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>())
     .run();
 }

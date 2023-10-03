@@ -54,7 +54,7 @@ fn app() -> App {
 fn it_works() {
     {
         let mut app = app();
-        app.add_systems(PreUpdate, save_into_file(SAVE_PATH));
+        app.add_systems(PreUpdate, save_default().into_file(SAVE_PATH));
 
         // Spawn some entities
         let bar = app.world.spawn(BarBundle::default()).id();
