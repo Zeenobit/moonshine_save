@@ -174,7 +174,7 @@ pub type SavePipeline = SystemConfigs;
 /// # Example
 /// ```
 /// use bevy::prelude::*;
-/// use moonshine_save::prelude::*;
+/// use moonshine_save::{prelude::*, save::save_into_file};
 ///
 /// let mut app = App::new();
 /// app.add_plugins((MinimalPlugins, SavePlugin))
@@ -195,7 +195,7 @@ pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
 /// use std::path::{Path, PathBuf};
 ///
 /// use bevy::prelude::*;
-/// use moonshine_save::prelude::*;
+/// use moonshine_save::{prelude::*, save::save_into_file_on_request};
 ///
 /// #[derive(Resource)]
 /// struct SaveRequest {
@@ -333,11 +333,27 @@ pub trait SaveIntoFileRequest {
     fn path(&self) -> &Path;
 }
 
+/// A convenient builder for defining a [`SavePipeline`].
+///
+/// See [`save`], [`save_default`], [`save_all`] on how to create an instance of this type.
 pub struct SavePipelineBuilder<F: ReadOnlyWorldQuery> {
     query: PhantomData<F>,
     scene: SaveFilter,
 }
 
+/// Creates a [`SavePipelineBuilder`] which saves all entities with given entity filter `F`.
+///
+/// During the save process, all entities that match the given query `F` will be selected for saving.
+///
+/// # Example
+/// ```
+/// use bevy::prelude::*;
+/// use moonshine_save::prelude::*;
+///
+/// let mut app = App::new();
+/// app.add_plugins((MinimalPlugins, SavePlugin))
+///     .add_systems(PreUpdate, save::<With<Save>>().into_file("example.ron"));
+/// ```
 pub fn save<F: ReadOnlyWorldQuery>() -> SavePipelineBuilder<F> {
     SavePipelineBuilder {
         query: PhantomData,
@@ -345,10 +361,35 @@ pub fn save<F: ReadOnlyWorldQuery>() -> SavePipelineBuilder<F> {
     }
 }
 
+/// Creates a [`SavePipelineBuilder`] which saves all entities with a [`Save`] component.
+///
+/// # Example
+/// ```
+/// use bevy::prelude::*;
+/// use moonshine_save::prelude::*;
+///
+/// let mut app = App::new();
+/// app.add_plugins((MinimalPlugins, SavePlugin))
+///     .add_systems(PreUpdate, save_default().into_file("example.ron"));
+/// ```
 pub fn save_default() -> SavePipelineBuilder<With<Save>> {
     save()
 }
 
+/// Creates a [`SavePipelineBuilder`] which saves all entities unconditionally.
+///
+/// # Warning
+/// Be careful about using this builder as some entities and/or components may not be safely serializable.
+///
+/// # Example
+/// ```
+/// use bevy::prelude::*;
+/// use moonshine_save::prelude::*;
+///
+/// let mut app = App::new();
+/// app.add_plugins((MinimalPlugins, SavePlugin))
+///     .add_systems(PreUpdate, save_all().into_file("example.ron"));
+/// ```
 pub fn save_all() -> SavePipelineBuilder<()> {
     save()
 }
@@ -357,16 +398,63 @@ impl<F: ReadOnlyWorldQuery> SavePipelineBuilder<F>
 where
     F: 'static,
 {
+    /// Includes a given [`Resource`] type into the save pipeline.
+    ///
+    /// By default, all resources are *excluded* from the save pipeline.
+    ///
+    /// # Example
+    /// ```
+    /// use bevy::prelude::*;
+    /// use moonshine_save::prelude::*;
+    ///
+    /// #[derive(Resource, Default, Reflect)]
+    /// #[reflect(Resource)]
+    /// struct R;
+    ///
+    /// let mut app = App::new();
+    /// app.register_type::<R>()
+    ///     .insert_resource(R)
+    ///     .add_plugins((MinimalPlugins, SavePlugin))
+    ///     .add_systems(
+    ///         PreUpdate,
+    ///         save_default()
+    ///             .include_resource::<R>()
+    ///             .into_file("example.ron"));
+    /// ```
     pub fn include_resource<R: Resource>(mut self) -> Self {
         self.scene.resources.allow::<R>();
         self
     }
 
+    /// Excludes a given [`Component`] type from the save pipeline.
+    ///
+    /// By default, all components which derive `Reflect` are *included* in the save pipeline.
+    ///
+    /// # Example
+    /// ```
+    /// use bevy::prelude::*;
+    /// use moonshine_save::prelude::*;
+    ///
+    /// #[derive(Resource, Default, Reflect)]
+    /// #[reflect(Resource)]
+    /// struct R;
+    ///
+    /// let mut app = App::new();
+    /// app.register_type::<R>()
+    ///     .insert_resource(R)
+    ///     .add_plugins((MinimalPlugins, SavePlugin))
+    ///     .add_systems(
+    ///         PreUpdate,
+    ///         save_default()
+    ///             .exclude_component::<ComputedVisibility>()
+    ///             .into_file("example.ron"));
+    /// ```
     pub fn exclude_component<T: Component>(mut self) -> Self {
         self.scene.components.deny::<T>();
         self
     }
 
+    /// Finishes the save pipeline by writing the saved data into a file at given `path`.
     pub fn into_file(self, path: impl Into<PathBuf>) -> SavePipeline {
         let Self { scene, .. } = self;
         (move || scene.clone())
@@ -377,6 +465,9 @@ where
             .in_set(SaveSet::Save)
     }
 
+    /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
+    ///
+    /// The save pipeline will only be triggered if a resource of type `R` is present.
     pub fn into_file_on_request<R: SaveIntoFileRequest + Resource>(self) -> SavePipeline {
         let Self { scene, .. } = self;
         (move || scene.clone())
@@ -390,6 +481,12 @@ where
             .in_set(SaveSet::Save)
     }
 
+    /// Finishes the save pipeline by writing the saved data into a file with its path derived from an event of type `R`.
+    ///
+    /// The save pipeline will only be triggered if an event of type `R` is sent.
+    ///
+    /// # Warning
+    /// If multiple events are sent in a single update cycle, only the first one is processed.
     pub fn into_file_on_event<R: SaveIntoFileRequest + Event>(self) -> SavePipeline {
         let Self { scene, .. } = self;
         (move || scene.clone())
