@@ -89,8 +89,6 @@ Ultimately, it is up to you to decide if the additional complexity of this separ
 
 However, a secondary design goal of this crate is maximum customizability. This crate includes several standard and commonly used save/load pipelines that should be sufficient for most applications. These pipelines are composed of smaller sub-systems which may be used in any desirable configuration with other systems to provide more specialized pipelines.
 
-See [Configuration](#configuration) for details on custom pipelines.
-
 ## Usage
 
 ### Save
