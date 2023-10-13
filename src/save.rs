@@ -338,7 +338,7 @@ pub trait SaveIntoFileRequest {
 /// See [`save`], [`save_default`], [`save_all`] on how to create an instance of this type.
 pub struct SavePipelineBuilder<F: ReadOnlyWorldQuery> {
     query: PhantomData<F>,
-    scene: SaveFilter,
+    pub scene: SaveFilter,
 }
 
 /// Creates a [`SavePipelineBuilder`] which saves all entities with given entity filter `F`.
