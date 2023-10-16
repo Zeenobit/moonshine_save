@@ -427,6 +427,12 @@ where
         self
     }
 
+    /// Includes a given [`Resource`] type into the save pipeline by its [`TypeId`].
+    pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
+        self.scene.resources.allow_by_id(type_id);
+        self
+    }
+
     /// Excludes a given [`Component`] type from the save pipeline.
     ///
     /// By default, all components which derive `Reflect` are *included* in the save pipeline.
