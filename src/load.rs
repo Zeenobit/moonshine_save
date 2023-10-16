@@ -42,6 +42,8 @@ use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
 use bevy_utils::tracing::{error, info, warn};
 use serde::de::DeserializeSeed;
 
+use crate::prelude::save;
+use crate::resources::SaveFile;
 use crate::{
     save::{Save, SaveSet, Saved},
     utils::{has_event, has_resource, remove_resource},
@@ -184,9 +186,9 @@ pub type LoadPipeline = SystemConfigs;
 ///     todo!()
 /// }
 /// ```
-pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
-    let path = path.into();
-    from_file(path)
+pub fn load_from_file() -> LoadPipeline {
+    //let path = path.into();
+    from_file
         .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
         .pipe(load)
         .pipe(insert_into_loaded(Save))
@@ -251,10 +253,22 @@ where
 
 /// A [`System`] which reads [`Saved`] data from a file at given `path`.
 pub fn from_file(
-    path: impl Into<PathBuf>,
-) -> impl Fn(Res<AppTypeRegistry>) -> Result<Saved, LoadError> {
-    let path = path.into();
-    move |type_registry| {
+    world: &World
+    // type_registry: Res<AppTypeRegistry>,
+    // save_file: Res<SaveFile>,
+    //path: impl Into<PathBuf>,
+) -> Result<Saved, LoadError> {
+    //let path = path.into();
+    //move |type_registry| {
+        type F = SaveFile;
+        let mut save_file = F::default();
+        let type_registry = world.get_resource::<AppTypeRegistry>().unwrap();
+        if let Some(save_file_check) = world.get_resource::<F>() {
+            save_file = save_file_check.clone();
+        }
+
+        
+        let path = save_file.path.clone();
         let input = std::fs::read(&path)?;
         let mut deserializer = ron::Deserializer::from_bytes(&input)?;
         let scene = {
@@ -264,7 +278,7 @@ pub fn from_file(
         };
         info!("loaded from file: {path:?}");
         Ok(Saved { scene })
-    }
+    //}
 }
 
 /// A [`System`] which reads [`Saved`] data from a file with its path defined at runtime.
@@ -407,7 +421,7 @@ mod tests {
         write(PATH, DATA).unwrap();
 
         let mut app = app();
-        app.add_systems(PreUpdate, load_from_file(PATH));
+        app.add_systems(PreUpdate, load_from_file());
 
         app.update();
 
@@ -526,7 +540,7 @@ mod tests {
         {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, HierarchyPlugin, LoadPlugin))
-                .add_systems(PreUpdate, load_from_file(PATH));
+                .add_systems(PreUpdate, load_from_file());
 
             // Spawn an entity to offset indices
             app.world.spawn_empty();

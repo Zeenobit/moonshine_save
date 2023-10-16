@@ -45,7 +45,7 @@ fn main() {
         PreUpdate,
                 save_default().finalize_save_pipeline().run_if(check_for_save_keypress)
     )
-    .add_systems(PreUpdate, load_from_file(SaveFile::default().path).run_if(check_for_load_keypress))
+    .add_systems(PreUpdate, load_from_file().run_if(check_for_load_keypress))
     .run();
 }
 
