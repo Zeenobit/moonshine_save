@@ -1,0 +1,49 @@
+(
+  resources: {},
+  entities: {
+    15: (
+      components: {
+        "army::WeaponKind": Ranged,
+      },
+    ),
+    16: (
+      components: {
+        "army::SoldierWeapon": (Some(15)),
+        "army::Soldier": (),
+      },
+    ),
+    17: (
+      components: {
+        "army::WeaponKind": Ranged,
+      },
+    ),
+    18: (
+      components: {
+        "army::SoldierWeapon": (Some(17)),
+        "army::Soldier": (),
+      },
+    ),
+    19: (
+      components: {
+        "army::WeaponKind": Ranged,
+      },
+    ),
+    20: (
+      components: {
+        "army::SoldierWeapon": (Some(19)),
+        "army::Soldier": (),
+      },
+    ),
+    21: (
+      components: {
+        "army::WeaponKind": Ranged,
+      },
+    ),
+    22: (
+      components: {
+        "army::SoldierWeapon": (Some(21)),
+        "army::Soldier": (),
+      },
+    ),
+  },
+)

@@ -37,7 +37,7 @@ use bevy_utils::{
     HashSet,
 };
 
-use crate::utils::{has_event, has_resource, remove_resource};
+use crate::{utils::{has_event, has_resource, remove_resource}, resources::SaveFile};
 
 /// A [`Plugin`] which configures [`SaveSet`] in [`PreUpdate`] schedule.
 pub struct SavePlugin;
@@ -121,7 +121,7 @@ impl EntityFilter {
     }
 }
 
-#[derive(Clone)]
+#[derive(Resource, Clone)]
 pub struct SaveFilter {
     pub entities: EntityFilter,
     pub resources: SceneFilter,
@@ -186,7 +186,7 @@ pub type SavePipeline = SystemConfigs;
 /// ```
 #[deprecated(note = "see `SavePipelineBuilder`")]
 pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
-    save_default().into_file(path)
+    save_default().finalize_save_pipeline()
 }
 
 /// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Resource`] is present.
@@ -231,10 +231,19 @@ pub fn save_into_file_on_event<R: SaveIntoFileRequest + Event>() -> SavePipeline
 /// # Usage
 ///
 /// All save pipelines should start with this system.
-pub fn save_scene(In(filter): In<SaveFilter>, world: &World) -> Saved {
+pub fn save_scene(
+    In(filter): In<SaveFilter>,
+    world: &World,
+) -> Saved {
     let mut builder = DynamicSceneBuilder::from_world(world);
-    builder.with_filter(filter.components);
-    builder.with_resource_filter(filter.resources);
+    type F = SaveFilter;
+
+    let mut save_filter = F::default();
+    if let Some(save_filter_check)  = world.get_resource::<F>() {
+        save_filter = save_filter_check.clone();
+    }    
+    builder.with_filter(save_filter.components);
+    builder.with_resource_filter(save_filter.resources);
     builder.extract_resources();
     match filter.entities {
         EntityFilter::Any => {}
@@ -266,14 +275,24 @@ pub fn remove_component<T: Component + Reflect>(In(mut saved): In<Saved>) -> Sav
 
 /// A [`System`] which writes [`Saved`] data into a file at given `path`.
 pub fn into_file(
-    path: PathBuf,
-) -> impl Fn(In<Saved>, Res<AppTypeRegistry>) -> Result<Saved, SaveError> {
-    move |In(saved), type_registry| {
-        let data = saved.scene.serialize_ron(&type_registry)?;
-        std::fs::write(&path, data.as_bytes())?;
-        info!("saved into file: {path:?}");
+    In(saved): In<Saved>,
+    world: &World,
+    // type_registry: Res<AppTypeRegistry>,
+    // save_file: Res<SaveFile>,
+) -> Result<Saved, SaveError> {
+    //move |In(saved), type_registry, save_file| {
+        type F = SaveFile;
+        let type_registry = world.get_resource::<AppTypeRegistry>().unwrap();
+        let data = saved.scene.serialize_ron(type_registry)?;
+
+        let mut save_file = &F::default();
+        if let Some(save_file_check) = world.get_resource::<F>() {
+            save_file = save_file_check;
+        }
+        std::fs::write(save_file.path.to_string(), data.as_bytes())?;
+        info!("saved into file: {:#}", save_file.path.to_string());
         Ok(saved)
-    }
+    //}
 }
 
 /// A [`System`] which writes [`Saved`] data into a file with its path defined at runtime.
@@ -338,7 +357,7 @@ pub trait SaveIntoFileRequest {
 /// See [`save`], [`save_default`], [`save_all`] on how to create an instance of this type.
 pub struct SavePipelineBuilder<F: ReadOnlyWorldQuery> {
     query: PhantomData<F>,
-    pub scene: SaveFilter,
+    scene: SaveFilter,
 }
 
 /// Creates a [`SavePipelineBuilder`] which saves all entities with given entity filter `F`.
@@ -453,14 +472,28 @@ where
         self.scene.components.deny::<T>();
         self
     }
+    // pub fn set_save_file (
+        
+    // )
+
+    // pub fn set_save_file(
+    //     path: PathBuf,
+    // ) -> impl Fn(In<Saved>, Res<AppTypeRegistry>) -> Result<Saved, SaveError> {
+    //     move |In(saved), type_registry| {
+    //         let data = saved.scene.serialize_ron(&type_registry)?;
+    //         std::fs::write(&path, data.as_bytes())?;
+    //         info!("saved into file: {path:?}");
+    //         Ok(saved)
+    //     }
+    // }
 
     /// Finishes the save pipeline by writing the saved data into a file at given `path`.
-    pub fn into_file(self, path: impl Into<PathBuf>) -> SavePipeline {
+    pub fn finalize_save_pipeline(self) -> SavePipeline {
         let Self { scene, .. } = self;
         (move || scene.clone())
             .pipe(filter_entities::<F>)
             .pipe(save_scene)
-            .pipe(into_file(path.into()))
+            .pipe(into_file)
             .pipe(finish)
             .in_set(SaveSet::Save)
     }
@@ -523,7 +556,7 @@ mod tests {
     fn test_save_into_file() {
         pub const PATH: &str = "test_save.ron";
         let mut app = app();
-        app.add_systems(Update, save_default().into_file(PATH));
+        app.add_systems(Update, save_default().finalize_save_pipeline());
 
         app.world.spawn((Dummy, Save));
         app.update();
@@ -605,7 +638,7 @@ mod tests {
             .insert_resource(Dummy)
             .add_systems(
                 Update,
-                save_default().include_resource::<Dummy>().into_file(PATH),
+                save_default().include_resource::<Dummy>().finalize_save_pipeline(),
             );
 
         app.update();
@@ -629,7 +662,7 @@ mod tests {
             PreUpdate,
             save_default()
                 .exclude_component::<Exclude>()
-                .into_file(PATH),
+                .finalize_save_pipeline(),
         );
 
         app.world.spawn((Dummy, Exclude, Save));

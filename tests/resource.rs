@@ -23,7 +23,7 @@ fn it_works() {
             PreUpdate,
             save_default()
                 .include_resource::<Foo>()
-                .into_file(SAVE_PATH),
+                .finalize_save_pipeline(),
         );
 
         app.insert_resource(Foo);

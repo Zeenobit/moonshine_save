@@ -2,7 +2,7 @@ use std::path::Path;
 
 use bevy::prelude::*;
 use bevy_ecs::entity::{EntityMapper, MapEntities};
-use moonshine_save::prelude::*;
+use moonshine_save::{prelude::*, resources::SaveFile};
 
 const SAVE_PATH: &str = "army.ron";
 const HELP_TEXT: &str =
@@ -43,9 +43,9 @@ fn main() {
     // Add save/load pipelines:
     .add_systems(
         PreUpdate,
-        save_default().into_file_on_request::<SaveRequest>(),
+                save_default().finalize_save_pipeline().run_if(check_for_save_keypress)
     )
-    .add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>())
+    .add_systems(PreUpdate, load_from_file(SaveFile::default().path).run_if(check_for_load_keypress))
     .run();
 }
 
@@ -69,6 +69,27 @@ impl SoldierBundle {
         }
     }
 }
+
+pub fn check_for_save_keypress(
+    keys: Res<Input<KeyCode>>,
+) -> bool{
+    if keys.just_pressed(KeyCode::AltRight) {
+        return true
+    } else {
+        return false
+    }
+}
+
+pub fn check_for_load_keypress(
+    keys: Res<Input<KeyCode>>,
+) -> bool{
+    if keys.just_pressed(KeyCode::AltLeft) {
+        return true
+    } else {
+        return false
+    }
+}
+
 
 #[derive(Component, Default, Reflect)]
 #[reflect(Component)]

@@ -3,6 +3,8 @@
 pub mod load;
 pub mod save;
 
+pub mod resources;
+
 mod utils;
 
 /// Common elements for saving/loading world state.

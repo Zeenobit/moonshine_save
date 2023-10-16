@@ -494,7 +494,7 @@ mod tests {
         {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, HierarchyPlugin, SavePlugin))
-                .add_systems(PreUpdate, save_default().into_file(PATH));
+                .add_systems(PreUpdate, save_default().finalize_save_pipeline());
 
             let entity = app
                 .world
