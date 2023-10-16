@@ -23,6 +23,7 @@
 //! ```
 
 use std::{
+    any::TypeId,
     io,
     marker::PhantomData,
     path::{Path, PathBuf},
@@ -451,6 +452,12 @@ where
     /// ```
     pub fn exclude_component<T: Component>(mut self) -> Self {
         self.scene.components.deny::<T>();
+        self
+    }
+
+    /// Excludes a given [`Component`] type from the save pipeline by its [`TypeId`].
+    pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
+        self.scene.components.deny_by_id(type_id);
         self
     }
 
