@@ -12,8 +12,8 @@ pub mod prelude {
         LoadFromFileRequest, LoadPlugin, LoadSet, Loaded, Unload,
     };
     pub use crate::save::{
-        save, save_all, save_default, Save, SaveError, SaveIntoFileRequest, SavePlugin, SaveSet,
-        Saved,
+        save, save_all, save_all_with, save_default, save_default_with, save_with, Save, SaveError,
+        SaveFilter, SaveIntoFileRequest, SavePlugin, SaveSet, Saved,
     };
 
     // TODO: Remove these.
