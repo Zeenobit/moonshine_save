@@ -270,6 +270,9 @@ pub fn into_file(
     path: PathBuf,
 ) -> impl Fn(In<Saved>, Res<AppTypeRegistry>) -> Result<Saved, SaveError> {
     move |In(saved), type_registry| {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let data = saved.scene.serialize_ron(&type_registry)?;
         std::fs::write(&path, data.as_bytes())?;
         info!("saved into file: {path:?}");
@@ -282,6 +285,9 @@ pub fn into_file_dyn(
     In((path, saved)): In<(PathBuf, Saved)>,
     type_registry: Res<AppTypeRegistry>,
 ) -> Result<Saved, SaveError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let data = saved.scene.serialize_ron(&type_registry)?;
     std::fs::write(&path, data.as_bytes())?;
     info!("saved into file: {path:?}");
