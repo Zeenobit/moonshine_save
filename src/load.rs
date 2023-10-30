@@ -187,7 +187,7 @@ pub type LoadPipeline = SystemConfigs;
 pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
     let path = path.into();
     from_file(path)
-        .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
+        .pipe(unload::<DefaultUnloadFilter>)
         .pipe(load)
         .pipe(insert_into_loaded(Save))
         .pipe(finish)
@@ -223,7 +223,7 @@ where
 {
     file_from_request::<R>
         .pipe(from_file_dyn)
-        .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
+        .pipe(unload::<DefaultUnloadFilter>)
         .pipe(load)
         .pipe(insert_into_loaded(Save))
         .pipe(finish)
@@ -241,7 +241,7 @@ where
 {
     file_from_event::<R>
         .pipe(from_file_dyn)
-        .pipe(unload::<Or<(With<Save>, With<Unload>)>>)
+        .pipe(unload::<DefaultUnloadFilter>)
         .pipe(load)
         .pipe(insert_into_loaded(Save))
         .pipe(finish)
@@ -282,6 +282,8 @@ pub fn from_file_dyn(
     info!("loaded from file: {path:?}");
     Ok(Saved { scene })
 }
+
+pub type DefaultUnloadFilter = Or<(With<Save>, With<Unload>)>;
 
 /// A [`System`] which recursively despawns all entities that match the given `Filter`.
 pub fn unload<Filter: ReadOnlyWorldQuery>(
