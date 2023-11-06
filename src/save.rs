@@ -446,7 +446,7 @@ where
     ///     .add_systems(
     ///         PreUpdate,
     ///         save_default()
-    ///             .exclude_component::<ComputedVisibility>()
+    ///             .exclude_component::<Transform>()
     ///             .into_file("example.ron"));
     /// ```
     pub fn exclude_component<T: Component>(mut self) -> Self {
