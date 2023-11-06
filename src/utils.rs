@@ -9,5 +9,5 @@ pub fn remove_resource<R: Resource>(mut commands: Commands) {
 }
 
 pub fn has_event<R: Event>(mut events: EventReader<R>) -> bool {
-    events.iter().next().is_some()
+    events.read().next().is_some()
 }

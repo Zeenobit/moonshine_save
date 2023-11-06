@@ -31,7 +31,6 @@ use std::{
 
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
-use bevy_reflect::Reflect;
 use bevy_scene::{DynamicScene, DynamicSceneBuilder, SceneFilter};
 use bevy_utils::{
     tracing::{error, info, warn},
@@ -233,36 +232,24 @@ pub fn save_into_file_on_event<R: SaveIntoFileRequest + Event>() -> SavePipeline
 ///
 /// All save pipelines should start with this system.
 pub fn save_scene(In(filter): In<SaveFilter>, world: &World) -> Saved {
-    let mut builder = DynamicSceneBuilder::from_world(world);
-    builder.with_filter(filter.components);
-    builder.with_resource_filter(filter.resources);
-    builder.extract_resources();
+    let mut builder = DynamicSceneBuilder::from_world(world)
+        .with_filter(filter.components)
+        .with_resource_filter(filter.resources)
+        .extract_resources();
     match filter.entities {
         EntityFilter::Any => {}
         EntityFilter::Allow(entities) => {
-            builder.extract_entities(entities.into_iter());
+            builder = builder.extract_entities(entities.into_iter());
         }
         EntityFilter::Block(entities) => {
-            builder.extract_entities(
-                world
-                    .iter_entities()
-                    .filter_map(|entity| (!entities.contains(&entity.id())).then_some(entity.id())),
-            );
+            builder =
+                builder.extract_entities(world.iter_entities().filter_map(|entity| {
+                    (!entities.contains(&entity.id())).then_some(entity.id())
+                }));
         }
     }
     let scene = builder.build();
     Saved { scene }
-}
-
-/// A [`System`] which removes a given component from [`Saved`] data.
-#[deprecated(note = "use `SaveFilter` instead")]
-pub fn remove_component<T: Component + Reflect>(In(mut saved): In<Saved>) -> Saved {
-    for entity in saved.scene.entities.iter_mut() {
-        entity
-            .components
-            .retain(|component| component.type_name() != std::any::type_name::<T>());
-    }
-    saved
 }
 
 /// A [`System`] which writes [`Saved`] data into a file at given `path`.
@@ -325,7 +312,7 @@ pub fn file_from_event<R>(In(saved): In<Saved>, mut events: EventReader<R>) -> (
 where
     R: SaveIntoFileRequest + Event,
 {
-    let mut iter = events.iter();
+    let mut iter = events.read();
     let event = iter.next().unwrap();
     if iter.next().is_some() {
         warn!("multiple save request events received; only the first one is processed.");
@@ -429,13 +416,13 @@ where
     ///             .into_file("example.ron"));
     /// ```
     pub fn include_resource<R: Resource>(mut self) -> Self {
-        self.filter.resources.allow::<R>();
+        self.filter.resources = self.filter.resources.allow::<R>();
         self
     }
 
     /// Includes a given [`Resource`] type into the save pipeline by its [`TypeId`].
     pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
-        self.filter.resources.allow_by_id(type_id);
+        self.filter.resources = self.filter.resources.allow_by_id(type_id);
         self
     }
 
@@ -463,13 +450,13 @@ where
     ///             .into_file("example.ron"));
     /// ```
     pub fn exclude_component<T: Component>(mut self) -> Self {
-        self.filter.components.deny::<T>();
+        self.filter.components = self.filter.components.deny::<T>();
         self
     }
 
     /// Excludes a given [`Component`] type from the save pipeline by its [`TypeId`].
     pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
-        self.filter.components.deny_by_id(type_id);
+        self.filter.components = self.filter.components.deny_by_id(type_id);
         self
     }
 
@@ -808,10 +795,8 @@ mod tests {
         struct Foo;
 
         fn deny_foo() -> SaveFilter {
-            let mut scene_filter = SceneFilter::default();
-            scene_filter.deny::<Foo>();
             SaveFilter {
-                components: scene_filter,
+                components: SceneFilter::default().deny::<Foo>(),
                 ..Default::default()
             }
         }

@@ -36,10 +36,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{entity::EntityMap, prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
+use bevy_ecs::{prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
 use bevy_hierarchy::DespawnRecursiveExt;
 use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
 use bevy_utils::tracing::{error, info, warn};
+use bevy_utils::HashMap;
 use serde::de::DeserializeSeed;
 
 use crate::{
@@ -124,7 +125,7 @@ pub struct Unload;
 /// A [`Resource`] which contains the loaded entity map. See [`FromLoaded`] for usage.
 #[derive(Resource)]
 pub struct Loaded {
-    pub entity_map: EntityMap,
+    pub entity_map: HashMap<Entity, Entity>,
 }
 
 #[derive(Debug)]
@@ -309,7 +310,7 @@ pub fn load(
     world: &mut World,
 ) -> Result<Loaded, LoadError> {
     let Saved { scene } = result?;
-    let mut entity_map = EntityMap::default();
+    let mut entity_map = HashMap::default();
     scene.write_to_world(world, &mut entity_map)?;
     Ok(Loaded { entity_map })
 }
@@ -321,7 +322,7 @@ pub fn insert_into_loaded(
     move |In(result), world| {
         if let Ok(loaded) = &result {
             for entity in loaded.entity_map.values() {
-                world.entity_mut(entity).insert(bundle.clone());
+                world.entity_mut(*entity).insert(bundle.clone());
             }
         }
         result
@@ -359,7 +360,7 @@ pub fn file_from_event<R>(mut events: EventReader<R>) -> PathBuf
 where
     R: LoadFromFileRequest + Event,
 {
-    let mut iter = events.iter();
+    let mut iter = events.read();
     let event = iter.next().unwrap();
     if iter.next().is_some() {
         warn!("multiple load request events received; only the first one is processed.");
