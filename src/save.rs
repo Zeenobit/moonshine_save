@@ -30,7 +30,7 @@ use std::{
 };
 
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
+use bevy_ecs::{prelude::*, query::QueryFilter, schedule::SystemConfigs};
 use bevy_scene::{DynamicScene, DynamicSceneBuilder, SceneFilter};
 use bevy_utils::{
     tracing::{error, info, warn},
@@ -140,7 +140,7 @@ impl Default for SaveFilter {
     }
 }
 
-pub fn filter<Filter: ReadOnlyWorldQuery>(entities: Query<Entity, Filter>) -> SaveFilter {
+pub fn filter<F: QueryFilter>(entities: Query<Entity, F>) -> SaveFilter {
     SaveFilter {
         entities: EntityFilter::allow(&entities),
         // TODO: We do not want to save any Bevy resources by default. They may not be serializable.
@@ -149,7 +149,7 @@ pub fn filter<Filter: ReadOnlyWorldQuery>(entities: Query<Entity, Filter>) -> Sa
     }
 }
 
-pub fn filter_entities<F: ReadOnlyWorldQuery>(
+pub fn filter_entities<F: QueryFilter>(
     In(mut filter): In<SaveFilter>,
     entities: Query<Entity, F>,
 ) -> SaveFilter
@@ -330,7 +330,7 @@ pub trait SaveIntoFileRequest {
 /// A convenient builder for defining a [`SavePipeline`].
 ///
 /// See [`save`], [`save_default`], [`save_all`] on how to create an instance of this type.
-pub struct SavePipelineBuilder<F: ReadOnlyWorldQuery> {
+pub struct SavePipelineBuilder<F: QueryFilter> {
     query: PhantomData<F>,
     filter: SaveFilter,
 }
@@ -348,7 +348,7 @@ pub struct SavePipelineBuilder<F: ReadOnlyWorldQuery> {
 /// app.add_plugins((MinimalPlugins, SavePlugin))
 ///     .add_systems(PreUpdate, save::<With<Save>>().into_file("example.ron"));
 /// ```
-pub fn save<F: ReadOnlyWorldQuery>() -> SavePipelineBuilder<F> {
+pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
     SavePipelineBuilder {
         query: PhantomData,
         filter: Default::default(),
@@ -388,7 +388,7 @@ pub fn save_all() -> SavePipelineBuilder<()> {
     save()
 }
 
-impl<F: ReadOnlyWorldQuery> SavePipelineBuilder<F>
+impl<F: QueryFilter> SavePipelineBuilder<F>
 where
     F: 'static,
 {
@@ -509,12 +509,12 @@ where
 /// A convenient builder for defining a [`SavePipeline`] with a dynamic [`SaveFilter`] which can be provided from any [`System`].
 ///
 /// See [`save_with`], [`save_default_with`], and [`save_all_with`] on how to create an instance of this type.
-pub struct DynamicSavePipelineBuilder<F: ReadOnlyWorldQuery, S: System<In = (), Out = SaveFilter>> {
+pub struct DynamicSavePipelineBuilder<F: QueryFilter, S: System<In = (), Out = SaveFilter>> {
     query: PhantomData<F>,
     filter_source: S,
 }
 
-impl<F: ReadOnlyWorldQuery, S: System<In = (), Out = SaveFilter>> DynamicSavePipelineBuilder<F, S>
+impl<F: QueryFilter, S: System<In = (), Out = SaveFilter>> DynamicSavePipelineBuilder<F, S>
 where
     F: 'static,
 {
@@ -582,7 +582,7 @@ where
 /// app.add_plugins((MinimalPlugins, SavePlugin))
 ///     .add_systems(PreUpdate, save_with::<With<Save>, _, _>(save_filter).into_file("example.ron"));
 /// ```
-pub fn save_with<F: ReadOnlyWorldQuery, S: IntoSystem<(), SaveFilter, M>, M>(
+pub fn save_with<F: QueryFilter, S: IntoSystem<(), SaveFilter, M>, M>(
     filter_source: S,
 ) -> DynamicSavePipelineBuilder<F, S::System> {
     DynamicSavePipelineBuilder {

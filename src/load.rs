@@ -36,11 +36,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{prelude::*, query::ReadOnlyWorldQuery, schedule::SystemConfigs};
+use bevy_ecs::entity::EntityHashMap;
+use bevy_ecs::{prelude::*, query::QueryFilter, schedule::SystemConfigs};
 use bevy_hierarchy::DespawnRecursiveExt;
 use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
 use bevy_utils::tracing::{error, info, warn};
-use bevy_utils::HashMap;
 use serde::de::DeserializeSeed;
 
 use crate::{
@@ -125,7 +125,7 @@ pub struct Unload;
 /// A [`Resource`] which contains the loaded entity map. See [`FromLoaded`] for usage.
 #[derive(Resource)]
 pub struct Loaded {
-    pub entity_map: HashMap<Entity, Entity>,
+    pub entity_map: EntityHashMap<Entity>,
 }
 
 #[derive(Debug)]
@@ -178,7 +178,7 @@ pub type LoadPipeline = SystemConfigs;
 /// use moonshine_save::prelude::*;
 ///
 /// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, LoadPlugin))
+/// app.add_plugins(LoadPlugin)
 ///     .add_systems(PreUpdate, load_from_file("example.ron").run_if(should_load));
 ///
 /// fn should_load() -> bool {
@@ -287,7 +287,7 @@ pub fn from_file_dyn(
 pub type DefaultUnloadFilter = Or<(With<Save>, With<Unload>)>;
 
 /// A [`System`] which recursively despawns all entities that match the given `Filter`.
-pub fn unload<Filter: ReadOnlyWorldQuery>(
+pub fn unload<Filter: QueryFilter>(
     In(result): In<Result<Saved, LoadError>>,
     world: &mut World,
 ) -> Result<Saved, LoadError> {
@@ -310,7 +310,7 @@ pub fn load(
     world: &mut World,
 ) -> Result<Loaded, LoadError> {
     let Saved { scene } = result?;
-    let mut entity_map = HashMap::default();
+    let mut entity_map = EntityHashMap::default();
     scene.write_to_world(world, &mut entity_map)?;
     Ok(Loaded { entity_map })
 }
@@ -384,7 +384,7 @@ mod tests {
     pub const DATA: &str = "(
         resources: {},
         entities: {
-            0: (
+            4294967296: (
                 components: {
                     \"moonshine_save::load::tests::Dummy\": (),
                 },
@@ -416,7 +416,7 @@ mod tests {
 
         assert!(app
             .world
-            .query::<With<Dummy>>()
+            .query_filtered::<(), With<Dummy>>()
             .get_single(&app.world)
             .is_ok());
 
@@ -446,7 +446,7 @@ mod tests {
 
         assert!(app
             .world
-            .query::<With<Dummy>>()
+            .query_filtered::<(), With<Dummy>>()
             .get_single(&app.world)
             .is_ok());
 
@@ -477,7 +477,7 @@ mod tests {
 
         assert!(app
             .world
-            .query::<With<Dummy>>()
+            .query_filtered::<(), With<Dummy>>()
             .get_single(&app.world)
             .is_ok());
 

@@ -79,9 +79,9 @@ struct Soldier;
 struct SoldierWeapon(Option<Entity>);
 
 impl MapEntities for SoldierWeapon {
-    fn map_entities(&mut self, entity_mapper: &mut EntityMapper) {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         if let Some(weapon) = self.0.as_mut() {
-            *weapon = entity_mapper.get_or_reserve(*weapon);
+            *weapon = entity_mapper.map_entity(*weapon);
         }
     }
 }
