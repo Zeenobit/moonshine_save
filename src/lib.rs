@@ -9,11 +9,11 @@ mod utils;
 pub mod prelude {
     pub use crate::load::{
         load_from_file, load_from_file_on_event, load_from_file_on_request, LoadError,
-        LoadFromFileRequest, LoadPlugin, LoadSet, Loaded, Unload,
+        LoadFromFileRequest, LoadPlugin, LoadSystem, Loaded, Unload,
     };
     pub use crate::save::{
         save, save_all, save_all_with, save_default, save_default_with, save_with, Save, SaveError,
-        SaveFilter, SaveIntoFileRequest, SavePlugin, SaveSet, Saved,
+        SaveFilter, SaveIntoFileRequest, SavePlugin, SaveSystem, Saved,
     };
 
     // TODO: Remove these.

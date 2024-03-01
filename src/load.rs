@@ -44,11 +44,11 @@ use bevy_utils::tracing::{error, info, warn};
 use serde::de::DeserializeSeed;
 
 use crate::{
-    save::{Save, SaveSet, Saved},
+    save::{Save, SaveSystem, Saved},
     utils::{has_event, has_resource, remove_resource},
 };
 
-/// A [`Plugin`] which configures [`LoadSet`] in [`PreUpdate`] schedule.
+/// A [`Plugin`] which configures [`LoadSystem`] in [`PreUpdate`] schedule.
 pub struct LoadPlugin;
 
 impl Plugin for LoadPlugin {
@@ -56,25 +56,25 @@ impl Plugin for LoadPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                LoadSet::Load,
-                LoadSet::PostLoad.run_if(has_resource::<Loaded>),
+                LoadSystem::Load,
+                LoadSystem::PostLoad.run_if(has_resource::<Loaded>),
             )
                 .chain()
-                .before(SaveSet::Save),
+                .before(SaveSystem::Save),
         )
         .add_systems(
             PreUpdate,
-            (remove_resource::<Loaded>, apply_deferred).in_set(LoadSet::PostLoad),
+            (remove_resource::<Loaded>, apply_deferred).in_set(LoadSystem::PostLoad),
         );
     }
 }
 
 /// A [`SystemSet`] for systems that process loading [`Saved`] data.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, SystemSet)]
-pub enum LoadSet {
+pub enum LoadSystem {
     /// Reserved for systems which deserialize [`Saved`] data and process the output.
     Load,
-    /// Runs after [`LoadSet::Load`].
+    /// Runs after [`LoadSystem::Load`].
     PostLoad,
 }
 
@@ -192,7 +192,7 @@ pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
         .pipe(load)
         .pipe(insert_into_loaded(Save))
         .pipe(finish)
-        .in_set(LoadSet::Load)
+        .in_set(LoadSystem::Load)
 }
 
 /// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Resource`] is present.
@@ -230,7 +230,7 @@ where
         .pipe(finish)
         .pipe(remove_resource::<R>)
         .run_if(has_resource::<R>)
-        .in_set(LoadSet::Load)
+        .in_set(LoadSystem::Load)
 }
 
 /// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Event`] is sent.
@@ -247,7 +247,7 @@ where
         .pipe(insert_into_loaded(Save))
         .pipe(finish)
         .run_if(has_event::<R>)
-        .in_set(LoadSet::Load)
+        .in_set(LoadSystem::Load)
 }
 
 /// A [`System`] which reads [`Saved`] data from a file at given `path`.

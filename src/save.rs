@@ -39,7 +39,7 @@ use bevy_utils::{
 
 use crate::utils::{has_event, has_resource, remove_resource};
 
-/// A [`Plugin`] which configures [`SaveSet`] in [`PreUpdate`] schedule.
+/// A [`Plugin`] which configures [`SaveSystem`] in [`PreUpdate`] schedule.
 pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
@@ -47,28 +47,28 @@ impl Plugin for SavePlugin {
         app.configure_sets(
             PreUpdate,
             (
-                SaveSet::Save,
-                SaveSet::PostSave.run_if(has_resource::<Saved>),
+                SaveSystem::Save,
+                SaveSystem::PostSave.run_if(has_resource::<Saved>),
             )
                 .chain(),
         )
         .add_systems(
             PreUpdate,
-            (remove_resource::<Saved>, apply_deferred).in_set(SaveSet::PostSave),
+            (remove_resource::<Saved>, apply_deferred).in_set(SaveSystem::PostSave),
         );
     }
 }
 
 /// A [`SystemSet`] for systems that process saving.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, SystemSet)]
-pub enum SaveSet {
+pub enum SaveSystem {
     /// Reserved for systems which serialize the world and process the output.
     Save,
-    /// Runs after [`SaveSet::Save`].
+    /// Runs after [`SaveSystem::Save`].
     PostSave,
 }
 
-/// A [`Resource`] which contains the saved [`World`] data during [`SaveSet::PostSave`].
+/// A [`Resource`] which contains the saved [`World`] data during [`SaveSystem::PostSave`].
 #[derive(Resource)]
 pub struct Saved {
     pub scene: DynamicScene,
@@ -468,7 +468,7 @@ where
             .pipe(save_scene)
             .pipe(into_file(path.into()))
             .pipe(finish)
-            .in_set(SaveSet::Save)
+            .in_set(SaveSystem::Save)
     }
 
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
@@ -484,7 +484,7 @@ where
             .pipe(finish)
             .pipe(remove_resource::<R>)
             .run_if(has_resource::<R>)
-            .in_set(SaveSet::Save)
+            .in_set(SaveSystem::Save)
     }
 
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from an event of type `R`.
@@ -502,7 +502,7 @@ where
             .pipe(into_file_dyn)
             .pipe(finish)
             .run_if(has_event::<R>)
-            .in_set(SaveSet::Save)
+            .in_set(SaveSystem::Save)
     }
 }
 
@@ -526,7 +526,7 @@ where
             .pipe(save_scene)
             .pipe(into_file(path.into()))
             .pipe(finish)
-            .in_set(SaveSet::Save)
+            .in_set(SaveSystem::Save)
     }
 
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
@@ -542,7 +542,7 @@ where
             .pipe(finish)
             .pipe(remove_resource::<R>)
             .run_if(has_resource::<R>)
-            .in_set(SaveSet::Save)
+            .in_set(SaveSystem::Save)
     }
 
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from an event of type `R`.
@@ -560,7 +560,7 @@ where
             .pipe(into_file_dyn)
             .pipe(finish)
             .run_if(has_event::<R>)
-            .in_set(SaveSet::Save)
+            .in_set(SaveSystem::Save)
     }
 }
 
