@@ -36,8 +36,7 @@ use bevy_utils::{
     tracing::{error, info, warn},
     HashSet,
 };
-
-use crate::utils::{has_event, has_resource, remove_resource};
+use moonshine_util::system::*;
 
 /// A [`Plugin`] which configures [`SaveSystem`] in [`PreUpdate`] schedule.
 pub struct SavePlugin;

@@ -3,8 +3,6 @@
 pub mod load;
 pub mod save;
 
-mod utils;
-
 /// Common elements for saving/loading world state.
 pub mod prelude {
     pub use crate::load::{

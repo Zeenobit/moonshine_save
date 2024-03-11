@@ -41,12 +41,10 @@ use bevy_ecs::{prelude::*, query::QueryFilter, schedule::SystemConfigs};
 use bevy_hierarchy::DespawnRecursiveExt;
 use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
 use bevy_utils::tracing::{error, info, warn};
+use moonshine_util::system::*;
 use serde::de::DeserializeSeed;
 
-use crate::{
-    save::{Save, SaveSystem, Saved},
-    utils::{has_event, has_resource, remove_resource},
-};
+use crate::save::{Save, SaveSystem, Saved};
 
 /// A [`Plugin`] which configures [`LoadSystem`] in [`PreUpdate`] schedule.
 pub struct LoadPlugin;
