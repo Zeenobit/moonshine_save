@@ -53,7 +53,7 @@ impl Plugin for SavePlugin {
         )
         .add_systems(
             PreUpdate,
-            (remove_resource::<Saved>, apply_deferred).in_set(SaveSystem::PostSave),
+            remove_resource::<Saved>.in_set(SaveSystem::PostSave),
         );
     }
 }
@@ -668,13 +668,14 @@ mod tests {
     fn test_save_into_file() {
         pub const PATH: &str = "test_save.ron";
         let mut app = app();
-        app.add_systems(Update, save_default().into_file(PATH));
+        app.add_systems(PreUpdate, save_default().into_file(PATH));
 
         app.world.spawn((Dummy, Save));
         app.update();
 
         let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
+        assert!(!app.world.contains_resource::<Saved>());
 
         remove_file(PATH).unwrap();
     }

@@ -62,7 +62,7 @@ impl Plugin for LoadPlugin {
         )
         .add_systems(
             PreUpdate,
-            (remove_resource::<Loaded>, apply_deferred).in_set(LoadSystem::PostLoad),
+            remove_resource::<Loaded>.in_set(LoadSystem::PostLoad),
         );
     }
 }
@@ -412,6 +412,7 @@ mod tests {
 
         app.update();
 
+        assert!(!app.world.contains_resource::<Loaded>());
         assert!(app
             .world
             .query_filtered::<(), With<Dummy>>()
