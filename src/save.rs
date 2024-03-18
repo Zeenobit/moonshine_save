@@ -104,17 +104,14 @@ pub enum EntityFilter {
 }
 
 impl EntityFilter {
-    #[must_use]
     pub fn any() -> Self {
         Self::Any
     }
 
-    #[must_use]
     pub fn allow(entities: impl IntoIterator<Item = Entity>) -> Self {
         Self::Allow(entities.into_iter().collect())
     }
 
-    #[must_use]
     pub fn block(entities: impl IntoIterator<Item = Entity>) -> Self {
         Self::Block(entities.into_iter().collect())
     }
