@@ -31,6 +31,8 @@ To use this crate as intended, you must design your game logic with this separat
 - Create a link between saved entities and their view entity.
   - This can be done using a non-serializable component/resource.
 
+✨ See [Moonshine View](https://github.com/Zeenobit/moonshine_view) for a more generic solution for managing views.
+
 As an example, suppose we want to represent a player character in a game.
 Various components are used to represent the logical state of the player, such as `Health`, `Inventory`, or `Weapon`.
 
