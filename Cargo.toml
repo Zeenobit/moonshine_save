@@ -1,13 +1,14 @@
 [package]
 name = "moonshine-save"
-version = "0.3.6"
+version = "0.3.7"
 edition = "2021"
 license = "MIT"
-description = "Save/Load framework for Bevy game engine"
+description = "Save/Load framework for Bevy"
+categories = ["game-development"]
+keywords = ["bevy", "save", "load", "serde", "ron"]
+readme = "README.md"
 homepage = "https://github.com/Zeenobit/moonshine_save"
 repository = "https://github.com/Zeenobit/moonshine_save"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 ron = "0.8.0"
