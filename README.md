@@ -22,7 +22,7 @@ use moonshine_save::prelude::*;
 
 App::new()
     .add_plugins(DefaultPlugins)
-    .add_plugin((SavePlugin, LoadPlugin))
+    .add_plugins((SavePlugin, LoadPlugin))
     .add_systems(PreUpdate, save_default().into_file("world.ron").run_if(should_save))
     .add_systems(PreUpdate, load_from_file("world.ron").run_if(should_load));
 
@@ -75,6 +75,15 @@ struct PlayerBundle {
     weapon: Weapon,
     sprite: SpriteBundle,
 }
+
+#[derive(Component)]
+struct Health;
+
+#[derive(Component)]
+struct Inventory;
+
+#[derive(Component)]
+struct Weapon;
 ```
 
 An arguably better approach would be to store this data in a completely separate entity:
@@ -91,6 +100,18 @@ struct PlayerBundle {
     weapon: Weapon,
 }
 
+#[derive(Component)]
+struct Player;
+
+#[derive(Component)]
+struct Health;
+
+#[derive(Component)]
+struct Inventory;
+
+#[derive(Component)]
+struct Weapon;
+
 #[derive(Bundle)]
 struct PlayerViewBundle {
     view: PlayerView,
@@ -104,9 +125,9 @@ struct PlayerView {
 
 fn spawn_player_sprite(mut commands: Commands, query: Query<Entity, Added<Player>>) {
     for player in query.iter() {
-        commands.spawn(PlayerSpriteBundle {
+        commands.spawn(PlayerViewBundle {
             view: PlayerView { player },
-            ..Default::default()
+            sprite: todo!(),
         });
     }
 }
@@ -239,7 +260,7 @@ use moonshine_save::prelude::*;
 struct PlayerWeapon(Option<Entity>);
 
 impl MapEntities for PlayerWeapon {
-    fn map_entities(&mut self, entity_mapper: &mut EntityMapper) {
+        fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         if let Some(weapon) = self.0.as_mut() {
             *weapon = entity_mapper.map_entity(*weapon);
         }
