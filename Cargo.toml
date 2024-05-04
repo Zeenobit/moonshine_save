@@ -19,7 +19,7 @@ bevy_hierarchy = "0.13.*"
 bevy_reflect = "0.13.*"
 bevy_scene = "0.13.*"
 bevy_utils = "0.13.*"
-moonshine-util = { version = "0.2.0", path = "../util" }
+moonshine-util = { version = "0.2.*", path = "../util" }
 
 [dev-dependencies]
 bevy = "0.13.*"
