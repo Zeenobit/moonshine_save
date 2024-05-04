@@ -282,7 +282,7 @@ To invoke the load process, you must add a load pipeline. The default load pipel
 app.add_systems(PreUpdate, load_from_file("saved.ron"));
 ```
 
-Similar to `save_into_file`, you typically want to use `load_from_file` with [`.run_if`](https://docs.rs/bevy/latest/bevy/ecs/schedule/trait.IntoSystemConfigs.html#method.run_if):
+Similar to the save pipeline, you typically want to use `load_from_file` with [`.run_if`](https://docs.rs/bevy/latest/bevy/ecs/schedule/trait.IntoSystemConfigs.html#method.run_if):
 
 ```rust,ignore
 app.add_systems(PreUpdate, load_from_file("saved.ron").run_if(should_load));
