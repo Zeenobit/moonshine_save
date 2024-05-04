@@ -159,69 +159,6 @@ where
 /// A collection of systems ([`SystemConfigs`]) which perform the save process.
 pub type SavePipeline = SystemConfigs;
 
-/// Default [`SavePipeline`].
-///
-/// # Usage
-///
-/// This save pipeline saves all entities with [`Save`] component in the [`World`] into some given file.
-///
-/// Typically, it should be used with [`run_if`](bevy_ecs::schedule::SystemSet::run_if).
-///
-/// # Example
-/// ```
-/// use bevy::prelude::*;
-/// use moonshine_save::{prelude::*, save::save_into_file};
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_into_file("example.ron").run_if(should_save));
-///
-/// fn should_save() -> bool {
-///     todo!()
-/// }
-/// ```
-#[deprecated(note = "see `SavePipelineBuilder`")]
-pub fn save_into_file(path: impl Into<PathBuf>) -> SavePipeline {
-    save_default().into_file(path)
-}
-
-/// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Resource`] is present.
-///
-/// ```
-/// use std::path::{Path, PathBuf};
-///
-/// use bevy::prelude::*;
-/// use moonshine_save::{prelude::*, save::save_into_file_on_request};
-///
-/// #[derive(Resource)]
-/// struct SaveRequest {
-///     pub path: PathBuf,
-/// }
-///
-/// impl SaveIntoFileRequest for SaveRequest {
-///     fn path(&self) -> &Path {
-///         self.path.as_ref()
-///     }
-/// }
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(Update, save_into_file_on_request::<SaveRequest>());
-/// ```
-#[deprecated(note = "see `SavePipelineBuilder`")]
-pub fn save_into_file_on_request<R: SaveIntoFileRequest + Resource>() -> SavePipeline {
-    save_default().into_file_on_request::<R>()
-}
-
-/// A [`SavePipeline`] like [`save_into_file`] which is only triggered if a [`SaveIntoFileRequest`] [`Event`] is sent.
-///
-/// # Warning
-/// If multiple events are sent in a single update cycle, only the first one is processed.
-#[deprecated(note = "see `SavePipelineBuilder`")]
-pub fn save_into_file_on_event<R: SaveIntoFileRequest + Event>() -> SavePipeline {
-    save_default().into_file_on_event::<R>()
-}
-
 /// A [`System`] which creates [`Saved`] data from all entities with given `Filter`.
 ///
 /// # Usage
