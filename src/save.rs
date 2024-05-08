@@ -145,13 +145,10 @@ pub fn filter<F: QueryFilter>(entities: Query<Entity, F>) -> SaveFilter {
     }
 }
 
-pub fn filter_entities<F: QueryFilter>(
+pub fn filter_entities<F: 'static + QueryFilter>(
     In(mut filter): In<SaveFilter>,
     entities: Query<Entity, F>,
-) -> SaveFilter
-where
-    F: 'static,
-{
+) -> SaveFilter {
     filter.entities = EntityFilter::allow(&entities);
     filter
 }
