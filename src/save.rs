@@ -38,6 +38,8 @@ use bevy_utils::{
 };
 use moonshine_util::system::*;
 
+use crate::FilePath;
+
 /// A [`Plugin`] which configures [`SaveSystem`] in [`PreUpdate`] schedule.
 pub struct SavePlugin;
 
@@ -225,7 +227,7 @@ pub fn finish(In(result): In<Result<Saved, SaveError>>, world: &mut World) {
 /// A [`System`] which extracts the path from a [`SaveIntoFileRequest`] [`Resource`].
 pub fn file_from_request<R>(In(saved): In<Saved>, request: Res<R>) -> (PathBuf, Saved)
 where
-    R: SaveIntoFileRequest + Resource,
+    R: FilePath + Resource,
 {
     let path = request.path().to_owned();
     (path, saved)
@@ -240,7 +242,7 @@ where
 /// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
 pub fn file_from_event<R>(In(saved): In<Saved>, mut events: EventReader<R>) -> (PathBuf, Saved)
 where
-    R: SaveIntoFileRequest + Event,
+    R: FilePath + Event,
 {
     let mut iter = events.read();
     let event = iter.next().unwrap();
@@ -252,6 +254,7 @@ where
 }
 
 /// Any type which may be used to trigger [`save_into_file_on_request`] or [`save_into_file_on_event`].
+#[deprecated(note = "use `FilePath` instead")]
 pub trait SaveIntoFileRequest {
     /// Path of the file to save into.
     fn path(&self) -> &Path;
@@ -404,7 +407,7 @@ where
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
     ///
     /// The save pipeline will only be triggered if a resource of type `R` is present.
-    pub fn into_file_on_request<R: SaveIntoFileRequest + Resource>(self) -> SavePipeline {
+    pub fn into_file_on_request<R: FilePath + Resource>(self) -> SavePipeline {
         let Self { filter, .. } = self;
         (move || filter.clone())
             .pipe(filter_entities::<F>)
@@ -423,7 +426,7 @@ where
     ///
     /// # Warning
     /// If multiple events are sent in a single update cycle, only the first one is processed.
-    pub fn into_file_on_event<R: SaveIntoFileRequest + Event>(self) -> SavePipeline {
+    pub fn into_file_on_event<R: FilePath + Event>(self) -> SavePipeline {
         let Self { filter, .. } = self;
         (move || filter.clone())
             .pipe(filter_entities::<F>)
@@ -462,7 +465,7 @@ where
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
     ///
     /// The save pipeline will only be triggered if a resource of type `R` is present.
-    pub fn into_file_on_request<R: SaveIntoFileRequest + Resource>(self) -> SavePipeline {
+    pub fn into_file_on_request<R: FilePath + Resource>(self) -> SavePipeline {
         let Self { filter_source, .. } = self;
         filter_source
             .pipe(filter_entities::<F>)
@@ -481,7 +484,7 @@ where
     ///
     /// # Warning
     /// If multiple events are sent in a single update cycle, only the first one is processed.
-    pub fn into_file_on_event<R: SaveIntoFileRequest + Event>(self) -> SavePipeline {
+    pub fn into_file_on_event<R: FilePath + Event>(self) -> SavePipeline {
         let Self { filter_source, .. } = self;
         filter_source
             .pipe(filter_entities::<F>)
@@ -618,7 +621,7 @@ mod tests {
         #[derive(Resource)]
         struct SaveRequest;
 
-        impl SaveIntoFileRequest for SaveRequest {
+        impl FilePath for SaveRequest {
             fn path(&self) -> &Path {
                 PATH.as_ref()
             }
@@ -647,7 +650,7 @@ mod tests {
         #[derive(Event)]
         struct SaveRequest;
 
-        impl SaveIntoFileRequest for SaveRequest {
+        impl FilePath for SaveRequest {
             fn path(&self) -> &Path {
                 PATH.as_ref()
             }

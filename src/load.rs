@@ -45,6 +45,7 @@ use moonshine_util::system::*;
 use serde::de::DeserializeSeed;
 
 use crate::save::{Save, SaveSystem, Saved};
+use crate::FilePath;
 
 /// A [`Plugin`] which configures [`LoadSystem`] in [`PreUpdate`] schedule.
 pub struct LoadPlugin;
@@ -218,7 +219,7 @@ pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
 /// ```
 pub fn load_from_file_on_request<R>() -> LoadPipeline
 where
-    R: LoadFromFileRequest + Resource,
+    R: FilePath + Resource,
 {
     file_from_request::<R>
         .pipe(from_file_dyn)
@@ -236,7 +237,7 @@ where
 /// Note: If multiple events are sent in a single update cycle, only the first one is processed.
 pub fn load_from_file_on_event<R>() -> LoadPipeline
 where
-    R: LoadFromFileRequest + Event,
+    R: FilePath + Event,
 {
     file_from_event::<R>
         .pipe(from_file_dyn)
@@ -342,7 +343,7 @@ pub fn finish(In(result): In<Result<Loaded, LoadError>>, world: &mut World) {
 /// A [`System`] which extracts the path from a [`LoadFromFileRequest`] [`Resource`].
 pub fn file_from_request<R>(request: Res<R>) -> PathBuf
 where
-    R: LoadFromFileRequest + Resource,
+    R: FilePath + Resource,
 {
     request.path().to_owned()
 }
@@ -356,7 +357,7 @@ where
 /// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
 pub fn file_from_event<R>(mut events: EventReader<R>) -> PathBuf
 where
-    R: LoadFromFileRequest + Event,
+    R: FilePath + Event,
 {
     let mut iter = events.read();
     let event = iter.next().unwrap();
@@ -367,6 +368,7 @@ where
 }
 
 /// Any type which may be used to trigger [`load_from_file_on_request`] or [`load_from_file_on_event`].
+#[deprecated(note = "use `FilePath` instead")]
 pub trait LoadFromFileRequest {
     fn path(&self) -> &Path;
 }
@@ -431,7 +433,7 @@ mod tests {
         #[derive(Resource)]
         struct LoadRequest;
 
-        impl LoadFromFileRequest for LoadRequest {
+        impl FilePath for LoadRequest {
             fn path(&self) -> &Path {
                 Path::new(PATH)
             }
@@ -461,7 +463,7 @@ mod tests {
         #[derive(Event)]
         struct LoadRequest;
 
-        impl LoadFromFileRequest for LoadRequest {
+        impl FilePath for LoadRequest {
             fn path(&self) -> &Path {
                 Path::new(PATH)
             }

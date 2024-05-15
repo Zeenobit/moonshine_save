@@ -327,7 +327,7 @@ fn load_button_clicked(
 #[derive(Resource)]
 struct SaveRequest;
 
-impl SaveIntoFileRequest for SaveRequest {
+impl FilePath for SaveRequest {
     fn path(&self) -> &Path {
         SAVE_PATH.as_ref()
     }
@@ -337,7 +337,7 @@ impl SaveIntoFileRequest for SaveRequest {
 #[derive(Resource)]
 struct LoadRequest;
 
-impl LoadFromFileRequest for LoadRequest {
+impl FilePath for LoadRequest {
     fn path(&self) -> &Path {
         SAVE_PATH.as_ref()
     }
