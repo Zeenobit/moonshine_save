@@ -57,8 +57,8 @@ fn it_works() {
         app.add_systems(PreUpdate, save_default().into_file(SAVE_PATH));
 
         // Spawn some entities
-        let bar = app.world.spawn(BarBundle::default()).id();
-        app.world.spawn(FooBundle {
+        let bar = app.world_mut().spawn(BarBundle::default()).id();
+        app.world_mut().spawn(FooBundle {
             foo: Foo(42),
             bar: FooBar(bar),
             save: Save,
@@ -67,9 +67,9 @@ fn it_works() {
         app.update();
 
         // Check pre-conditions
-        let mut world = app.world;
-        assert_eq!(world.query::<&Foo>().single(&world).0, 42);
-        assert_eq!(world.query::<&FooBar>().single(&world).0, bar);
+        let world = app.world_mut();
+        assert_eq!(world.query::<&Foo>().single(world).0, 42);
+        assert_eq!(world.query::<&FooBar>().single(world).0, bar);
         assert!(world.entity(bar).contains::<Save>());
 
         // Ensure file was written to disk
@@ -81,18 +81,15 @@ fn it_works() {
         app.add_systems(PreUpdate, load_from_file(SAVE_PATH));
 
         // Spawn an entity to offset indices
-        app.world.spawn_empty();
+        app.world_mut().spawn_empty();
 
         app.update();
 
-        let bar = app
-            .world
-            .query_filtered::<Entity, With<Bar>>()
-            .single(&app.world);
+        let world = app.world_mut();
+        let bar = world.query_filtered::<Entity, With<Bar>>().single(world);
 
-        let mut world = app.world;
-        assert_eq!(world.query::<&Foo>().single(&world).0, 42);
-        assert_eq!(world.query::<&FooBar>().single(&world).0, bar);
+        assert_eq!(world.query::<&Foo>().single(world).0, 42);
+        assert_eq!(world.query::<&FooBar>().single(world).0, bar);
         assert!(world.entity(bar).contains::<Save>());
 
         std::fs::remove_file(SAVE_PATH).unwrap();

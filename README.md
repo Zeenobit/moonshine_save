@@ -315,7 +315,7 @@ struct SaveRequest {
     pub path: PathBuf,
 }
 
-impl SaveIntoFileRequest for SaveRequest {
+impl FilePath for SaveRequest {
     fn path(&self) -> &Path {
         self.path.as_ref()
     }
@@ -327,7 +327,7 @@ struct LoadRequest {
     pub path: PathBuf,
 }
 
-impl LoadFromFileRequest for LoadRequest {
+impl FilePath for LoadRequest {
     fn path(&self) -> &Path {
         self.path.as_ref()
     }

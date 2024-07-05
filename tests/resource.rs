@@ -31,7 +31,7 @@ fn it_works() {
         app.update();
 
         // Check pre-conditions
-        assert!(app.world.contains_resource::<Foo>());
+        assert!(app.world().contains_resource::<Foo>());
 
         // Ensure file was written to disk
         assert!(std::fs::read(SAVE_PATH).is_ok());
@@ -43,7 +43,7 @@ fn it_works() {
 
         app.update();
 
-        assert!(app.world.contains_resource::<Foo>());
+        assert!(app.world().contains_resource::<Foo>());
 
         std::fs::remove_file(SAVE_PATH).unwrap();
     }

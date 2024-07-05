@@ -14,7 +14,7 @@
 //! #   app.add_plugins((MinimalPlugins, SavePlugin))
 //! #       .register_type::<Data>()
 //! #       .add_systems(PreUpdate, save_default().into_file("example.ron"));
-//! #   app.world.spawn((Data(12), Save));
+//! #   app.world_mut().spawn((Data(12), Save));
 //! #   app.update();
 //! # }
 //! #
@@ -207,7 +207,7 @@ pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
 ///     pub path: PathBuf,
 /// }
 ///
-/// impl LoadFromFileRequest for LoadRequest {
+/// impl FilePath for LoadRequest {
 ///     fn path(&self) -> &Path {
 ///         self.path.as_ref()
 ///     }
@@ -414,11 +414,11 @@ mod tests {
 
         app.update();
 
-        assert!(!app.world.contains_resource::<Loaded>());
-        assert!(app
-            .world
+        let world = app.world_mut();
+        assert!(!world.contains_resource::<Loaded>());
+        assert!(world
             .query_filtered::<(), With<Dummy>>()
-            .get_single(&app.world)
+            .get_single(world)
             .is_ok());
 
         remove_file(PATH).unwrap();
@@ -442,13 +442,13 @@ mod tests {
         let mut app = app();
         app.add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>());
 
-        app.world.insert_resource(LoadRequest);
+        app.world_mut().insert_resource(LoadRequest);
         app.update();
 
-        assert!(app
-            .world
+        let world = app.world_mut();
+        assert!(world
             .query_filtered::<(), With<Dummy>>()
-            .get_single(&app.world)
+            .get_single(world)
             .is_ok());
 
         remove_file(PATH).unwrap();
@@ -473,13 +473,13 @@ mod tests {
         app.add_event::<LoadRequest>()
             .add_systems(PreUpdate, load_from_file_on_event::<LoadRequest>());
 
-        app.world.send_event(LoadRequest);
+        app.world_mut().send_event(LoadRequest);
         app.update();
 
-        assert!(app
-            .world
+        let world = app.world_mut();
+        assert!(world
             .query_filtered::<(), With<Dummy>>()
-            .get_single(&app.world)
+            .get_single(world)
             .is_ok());
 
         remove_file(PATH).unwrap();
@@ -501,7 +501,7 @@ mod tests {
                 .add_systems(PreUpdate, save_default().into_file(PATH));
 
             let entity = app
-                .world
+                .world_mut()
                 .spawn(Save)
                 .with_children(|parent| {
                     parent.spawn(Save);
@@ -511,7 +511,7 @@ mod tests {
 
             app.update();
 
-            let world = app.world;
+            let world = app.world();
             let children = world.get::<Children>(entity).unwrap();
             assert_eq!(children.iter().count(), 2);
             for child in children.iter() {
@@ -533,12 +533,12 @@ mod tests {
                 .add_systems(PreUpdate, load_from_file(PATH));
 
             // Spawn an entity to offset indices
-            app.world.spawn_empty();
+            app.world_mut().spawn_empty();
 
             app.update();
 
-            let mut world = app.world;
-            let (entity, children) = world.query::<(Entity, &Children)>().single(&world);
+            let world = app.world_mut();
+            let (entity, children) = world.query::<(Entity, &Children)>().single(world);
             assert_eq!(children.iter().count(), 2);
             for child in children.iter() {
                 let parent = world.get::<Parent>(*child).unwrap().get();

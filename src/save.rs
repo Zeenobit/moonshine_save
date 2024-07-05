@@ -14,7 +14,7 @@
 //!     .register_type::<Data>()
 //!     .add_systems(PreUpdate, save_default().into_file("example.ron"));
 //!
-//! app.world.spawn((Data(12), Save));
+//! app.world_mut().spawn((Data(12), Save));
 //! app.update();
 //!
 //! let data = std::fs::read_to_string("example.ron").unwrap();
@@ -192,7 +192,7 @@ pub fn into_file(
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let data = saved.scene.serialize_ron(&type_registry)?;
+        let data = saved.scene.serialize(&type_registry.read())?;
         std::fs::write(&path, data.as_bytes())?;
         info!("saved into file: {path:?}");
         Ok(saved)
@@ -207,7 +207,7 @@ pub fn into_file_dyn(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let data = saved.scene.serialize_ron(&type_registry)?;
+    let data = saved.scene.serialize(&type_registry.read())?;
     std::fs::write(&path, data.as_bytes())?;
     info!("saved into file: {path:?}");
     Ok(saved)
@@ -604,12 +604,12 @@ mod tests {
         let mut app = app();
         app.add_systems(PreUpdate, save_default().into_file(PATH));
 
-        app.world.spawn((Dummy, Save));
+        app.world_mut().spawn((Dummy, Save));
         app.update();
 
         let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
-        assert!(!app.world.contains_resource::<Saved>());
+        assert!(!app.world().contains_resource::<Saved>());
 
         remove_file(PATH).unwrap();
     }
@@ -633,8 +633,8 @@ mod tests {
             save_default().into_file_on_request::<SaveRequest>(),
         );
 
-        app.world.insert_resource(SaveRequest);
-        app.world.spawn((Dummy, Save));
+        app.world_mut().insert_resource(SaveRequest);
+        app.world_mut().spawn((Dummy, Save));
         app.update();
 
         let data = read_to_string(PATH).unwrap();
@@ -662,8 +662,8 @@ mod tests {
             save_default().into_file_on_event::<SaveRequest>(),
         );
 
-        app.world.send_event(SaveRequest);
-        app.world.spawn((Dummy, Save));
+        app.world_mut().send_event(SaveRequest);
+        app.world_mut().spawn((Dummy, Save));
         app.update();
 
         let data = read_to_string(PATH).unwrap();
@@ -710,7 +710,7 @@ mod tests {
             save_default().exclude_component::<Foo>().into_file(PATH),
         );
 
-        app.world.spawn((Dummy, Foo, Save));
+        app.world_mut().spawn((Dummy, Foo, Save));
         app.update();
 
         let data = read_to_string(PATH).unwrap();
@@ -738,7 +738,7 @@ mod tests {
         let mut app = app();
         app.add_systems(PreUpdate, save_default_with(deny_foo).into_file(PATH));
 
-        app.world.spawn((Dummy, Foo, Save));
+        app.world_mut().spawn((Dummy, Foo, Save));
         app.update();
 
         let data = read_to_string(PATH).unwrap();

@@ -201,7 +201,7 @@ fn spawn_button(parent: &mut ChildBuilder, value: impl Into<String>, bundle: imp
         .spawn((
             bundle,
             ButtonBundle {
-                background_color: Color::DARK_GRAY.into(),
+                background_color: bevy::color::palettes::css::DARK_GRAY.into(),
                 style: Style {
                     margin: UiRect::all(Val::Px(5.)),
                     padding: UiRect::new(Val::Px(10.), Val::Px(10.), Val::Px(5.), Val::Px(5.)),
@@ -262,9 +262,9 @@ fn update_text(
         format!("Soldiers: {melee_count} Melee, {ranged_count} Ranged");
 }
 
-const DEFAULT_BUTTON_COLOR: Color = Color::rgb(0.15, 0.15, 0.15);
-const HOVERED_BUTTON_COLOR: Color = Color::rgb(0.25, 0.25, 0.25);
-const PRESSED_BUTTON_COLOR: Color = Color::rgb(0.35, 0.75, 0.35);
+const DEFAULT_BUTTON_COLOR: Color = Color::srgb(0.15, 0.15, 0.15);
+const HOVERED_BUTTON_COLOR: Color = Color::srgb(0.25, 0.25, 0.25);
+const PRESSED_BUTTON_COLOR: Color = Color::srgb(0.35, 0.75, 0.35);
 
 /// Handle color feedback for buttons.
 fn update_buttons(
