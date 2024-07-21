@@ -1,6 +1,6 @@
 [package]
 name = "moonshine-save"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2021"
 license = "MIT"
 description = "Save/Load framework for Bevy"
@@ -19,7 +19,7 @@ bevy_hierarchy = "0.14.*"
 bevy_reflect = "0.14.*"
 bevy_scene = "0.14.*"
 bevy_utils = "0.14.*"
-moonshine-util = { version = "0.2.4", path = "../util" }
+moonshine-util = { version = "0.2.5", path = "../util" }
 
 [dev-dependencies]
 bevy = "0.14.*"
