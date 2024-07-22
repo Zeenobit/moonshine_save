@@ -120,15 +120,15 @@ impl EntityFilter {
 }
 
 #[derive(Clone)]
-pub struct SaveFilter {
+pub struct SaveInput {
     pub entities: EntityFilter,
     pub resources: SceneFilter,
     pub components: SceneFilter,
 }
 
-impl Default for SaveFilter {
+impl Default for SaveInput {
     fn default() -> Self {
-        SaveFilter {
+        SaveInput {
             entities: EntityFilter::default(),
             // By default, save all components on all saved entities.
             components: SceneFilter::allow_all(),
@@ -138,21 +138,27 @@ impl Default for SaveFilter {
     }
 }
 
-pub fn filter<F: QueryFilter>(entities: Query<Entity, F>) -> SaveFilter {
-    SaveFilter {
+pub fn filter<F: QueryFilter>(entities: Query<Entity, F>) -> SaveInput {
+    SaveInput {
         entities: EntityFilter::allow(&entities),
-        // TODO: We do not want to save any Bevy resources by default. They may not be serializable.
+        // WARNING:
+        // Do not want to save any Bevy resources by default.
+        // They may be serializable, but not deserializable.
         resources: SceneFilter::deny_all(),
         ..Default::default()
     }
 }
 
 pub fn filter_entities<F: 'static + QueryFilter>(
-    In(mut filter): In<SaveFilter>,
+    In(mut input): In<SaveInput>,
     entities: Query<Entity, F>,
-) -> SaveFilter {
-    filter.entities = EntityFilter::allow(&entities);
-    filter
+) -> SaveInput {
+    input.entities = EntityFilter::allow(&entities);
+    input
+}
+
+pub fn map_components(In(input): In<SaveInput>) -> SaveInput {
+    input
 }
 
 /// A collection of systems ([`SystemConfigs`]) which perform the save process.
@@ -163,12 +169,12 @@ pub type SavePipeline = SystemConfigs;
 /// # Usage
 ///
 /// All save pipelines should start with this system.
-pub fn save_scene(In(filter): In<SaveFilter>, world: &World) -> Saved {
+pub fn save_scene(In(input): In<SaveInput>, world: &World) -> Saved {
     let mut builder = DynamicSceneBuilder::from_world(world)
-        .with_filter(filter.components)
-        .with_resource_filter(filter.resources)
+        .with_filter(input.components)
+        .with_resource_filter(input.resources)
         .extract_resources();
-    match filter.entities {
+    match input.entities {
         EntityFilter::Any => {}
         EntityFilter::Allow(entities) => {
             builder = builder.extract_entities(entities.into_iter());
@@ -265,12 +271,12 @@ pub trait SaveIntoFileRequest {
 /// See [`save`], [`save_default`], [`save_all`] on how to create an instance of this type.
 pub struct SavePipelineBuilder<F: QueryFilter> {
     query: PhantomData<F>,
-    filter: SaveFilter,
+    input: SaveInput,
 }
 
-/// Creates a [`SavePipelineBuilder`] which saves all entities with given entity filter `F`.
+/// Creates a [`SavePipelineBuilder`] which saves all entities with given [`QueryFilter`] `F`.
 ///
-/// During the save process, all entities that match the given query `F` will be selected for saving.
+/// During the save process, all entities that match the given query will be selected for saving.
 ///
 /// # Example
 /// ```
@@ -284,7 +290,7 @@ pub struct SavePipelineBuilder<F: QueryFilter> {
 pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
     SavePipelineBuilder {
         query: PhantomData,
-        filter: Default::default(),
+        input: Default::default(),
     }
 }
 
@@ -349,13 +355,13 @@ where
     ///             .into_file("example.ron"));
     /// ```
     pub fn include_resource<R: Resource>(mut self) -> Self {
-        self.filter.resources = self.filter.resources.allow::<R>();
+        self.input.resources = self.input.resources.allow::<R>();
         self
     }
 
     /// Includes a given [`Resource`] type into the save pipeline by its [`TypeId`].
     pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
-        self.filter.resources = self.filter.resources.allow_by_id(type_id);
+        self.input.resources = self.input.resources.allow_by_id(type_id);
         self
     }
 
@@ -383,20 +389,20 @@ where
     ///             .into_file("example.ron"));
     /// ```
     pub fn exclude_component<T: Component>(mut self) -> Self {
-        self.filter.components = self.filter.components.deny::<T>();
+        self.input.components = self.input.components.deny::<T>();
         self
     }
 
     /// Excludes a given [`Component`] type from the save pipeline by its [`TypeId`].
     pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
-        self.filter.components = self.filter.components.deny_by_id(type_id);
+        self.input.components = self.input.components.deny_by_id(type_id);
         self
     }
 
     /// Finishes the save pipeline by writing the saved data into a file at given `path`.
     pub fn into_file(self, path: impl Into<PathBuf>) -> SavePipeline {
-        let Self { filter, .. } = self;
-        (move || filter.clone())
+        let Self { input, .. } = self;
+        (move || input.clone())
             .pipe(filter_entities::<F>)
             .pipe(save_scene)
             .pipe(into_file(path.into()))
@@ -408,8 +414,8 @@ where
     ///
     /// The save pipeline will only be triggered if a resource of type `R` is present.
     pub fn into_file_on_request<R: FilePath + Resource>(self) -> SavePipeline {
-        let Self { filter, .. } = self;
-        (move || filter.clone())
+        let Self { input, .. } = self;
+        (move || input.clone())
             .pipe(filter_entities::<F>)
             .pipe(save_scene)
             .pipe(file_from_request::<R>)
@@ -427,8 +433,8 @@ where
     /// # Warning
     /// If multiple events are sent in a single update cycle, only the first one is processed.
     pub fn into_file_on_event<R: FilePath + Event>(self) -> SavePipeline {
-        let Self { filter, .. } = self;
-        (move || filter.clone())
+        let Self { input, .. } = self;
+        (move || input.clone())
             .pipe(filter_entities::<F>)
             .pipe(save_scene)
             .pipe(file_from_event::<R>)
@@ -442,19 +448,19 @@ where
 /// A convenient builder for defining a [`SavePipeline`] with a dynamic [`SaveFilter`] which can be provided from any [`System`].
 ///
 /// See [`save_with`], [`save_default_with`], and [`save_all_with`] on how to create an instance of this type.
-pub struct DynamicSavePipelineBuilder<F: QueryFilter, S: System<In = (), Out = SaveFilter>> {
+pub struct DynamicSavePipelineBuilder<F: QueryFilter, S: System<In = (), Out = SaveInput>> {
     query: PhantomData<F>,
-    filter_source: S,
+    input_source: S,
 }
 
-impl<F: QueryFilter, S: System<In = (), Out = SaveFilter>> DynamicSavePipelineBuilder<F, S>
+impl<F: QueryFilter, S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<F, S>
 where
     F: 'static,
 {
     /// Finishes the save pipeline by writing the saved data into a file at given `path`.
     pub fn into_file(self, path: impl Into<PathBuf>) -> SavePipeline {
-        let Self { filter_source, .. } = self;
-        filter_source
+        let Self { input_source, .. } = self;
+        input_source
             .pipe(filter_entities::<F>)
             .pipe(save_scene)
             .pipe(into_file(path.into()))
@@ -466,8 +472,8 @@ where
     ///
     /// The save pipeline will only be triggered if a resource of type `R` is present.
     pub fn into_file_on_request<R: FilePath + Resource>(self) -> SavePipeline {
-        let Self { filter_source, .. } = self;
-        filter_source
+        let Self { input_source, .. } = self;
+        input_source
             .pipe(filter_entities::<F>)
             .pipe(save_scene)
             .pipe(file_from_request::<R>)
@@ -485,8 +491,8 @@ where
     /// # Warning
     /// If multiple events are sent in a single update cycle, only the first one is processed.
     pub fn into_file_on_event<R: FilePath + Event>(self) -> SavePipeline {
-        let Self { filter_source, .. } = self;
-        filter_source
+        let Self { input_source, .. } = self;
+        input_source
             .pipe(filter_entities::<F>)
             .pipe(save_scene)
             .pipe(file_from_event::<R>)
@@ -497,10 +503,10 @@ where
     }
 }
 
-/// Creates a [`DynamicSavePipelineBuilder`] which saves all entities with given entity filter `F` and a filter source `S`.
+/// Creates a [`DynamicSavePipelineBuilder`] which saves all entities with given [`QueryFilter`] `F` and an input source `S`.
 ///
-/// During the save process, all entities that match the given query `F` will be selected for saving.
-/// Additionally, any valid system which returns a [`SaveFilter`] may be used as a filter source `S`.
+/// During the save process, all entities that match the given query will be selected for saving.
+/// Additionally, any valid system which returns a [`SaveInput`] may be used to provide the initial save input dynamically.
 ///
 /// # Example
 /// ```
@@ -515,18 +521,18 @@ where
 /// app.add_plugins((MinimalPlugins, SavePlugin))
 ///     .add_systems(PreUpdate, save_with::<With<Save>, _, _>(save_filter).into_file("example.ron"));
 /// ```
-pub fn save_with<F: QueryFilter, S: IntoSystem<(), SaveFilter, M>, M>(
-    filter_source: S,
+pub fn save_with<F: QueryFilter, S: IntoSystem<(), SaveInput, M>, M>(
+    input_source: S,
 ) -> DynamicSavePipelineBuilder<F, S::System> {
     DynamicSavePipelineBuilder {
         query: PhantomData,
-        filter_source: IntoSystem::into_system(filter_source),
+        input_source: IntoSystem::into_system(input_source),
     }
 }
 
 /// Creates a [`DynamicSavePipelineBuilder`] which saves all entities with a [`Save`] component and a filter source `S`.
 ///
-/// Additionally, any valid system which returns a [`SaveFilter`] may be used as a filter source `S`.
+/// Additionally, any valid system which returns a [`SaveInput`] may be used to provide the initial save input dynamically.
 ///
 /// # Example
 /// ```
@@ -541,18 +547,18 @@ pub fn save_with<F: QueryFilter, S: IntoSystem<(), SaveFilter, M>, M>(
 /// app.add_plugins((MinimalPlugins, SavePlugin))
 ///     .add_systems(PreUpdate, save_default_with(save_filter).into_file("example.ron"));
 /// ```
-pub fn save_default_with<S: IntoSystem<(), SaveFilter, M>, M>(
-    filter_source: S,
+pub fn save_default_with<S: IntoSystem<(), SaveInput, M>, M>(
+    input_source: S,
 ) -> DynamicSavePipelineBuilder<With<Save>, S::System> {
     DynamicSavePipelineBuilder {
         query: PhantomData,
-        filter_source: IntoSystem::into_system(filter_source),
+        input_source: IntoSystem::into_system(input_source),
     }
 }
 
 /// Creates a [`DynamicSavePipelineBuilder`] which saves all entities unconditionally and a filter source `S`.
 ///
-/// Additionally, any valid system which returns a [`SaveFilter`] may be used as a filter source `S`.
+/// Additionally, any valid system which returns a [`SaveInput`] may be used to provide the initial save input dynamically.
 ///
 /// # Warning
 /// Be careful about using this builder as some entities and/or components may not be safely serializable.
@@ -570,14 +576,16 @@ pub fn save_default_with<S: IntoSystem<(), SaveFilter, M>, M>(
 /// app.add_plugins((MinimalPlugins, SavePlugin))
 ///     .add_systems(PreUpdate, save_all_with(save_filter).into_file("example.ron"));
 /// ```
-pub fn save_all_with<S: IntoSystem<(), SaveFilter, M>, M>(
-    filter_source: S,
+pub fn save_all_with<S: IntoSystem<(), SaveInput, M>, M>(
+    input_source: S,
 ) -> DynamicSavePipelineBuilder<(), S::System> {
     DynamicSavePipelineBuilder {
         query: PhantomData,
-        filter_source: IntoSystem::into_system(filter_source),
+        input_source: IntoSystem::into_system(input_source),
     }
 }
+
+pub trait MapComponent<T: Component> {}
 
 #[cfg(test)]
 mod tests {
@@ -728,8 +736,8 @@ mod tests {
         #[reflect(Component)]
         struct Foo;
 
-        fn deny_foo() -> SaveFilter {
-            SaveFilter {
+        fn deny_foo() -> SaveInput {
+            SaveInput {
                 components: SceneFilter::default().deny::<Foo>(),
                 ..Default::default()
             }

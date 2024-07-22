@@ -14,8 +14,11 @@ pub mod prelude {
 
     pub use crate::save::{
         save, save_all, save_all_with, save_default, save_default_with, save_with, Save, SaveError,
-        SaveFilter, SavePlugin, SaveSystem, Saved,
+        SaveInput, SavePlugin, SaveSystem, Saved,
     };
+
+    #[deprecated(since = "0.3.9", note = "use `SaveInput` instead")]
+    pub type SaveFilter = SaveInput;
 
     pub use bevy_ecs::{
         entity::{EntityMapper, MapEntities},
