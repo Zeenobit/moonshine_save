@@ -320,8 +320,15 @@ pub fn insert_into_loaded(
 ) -> impl Fn(In<Result<Loaded, LoadError>>, &mut World) -> Result<Loaded, LoadError> {
     move |In(result), world| {
         if let Ok(loaded) = &result {
-            for entity in loaded.entity_map.values() {
-                world.entity_mut(*entity).insert(bundle.clone());
+            for (saved_entity, entity) in loaded.entity_map.iter() {
+                if let Some(mut entity) = world.get_entity_mut(*entity) {
+                    entity.insert(bundle.clone());
+                } else {
+                    warn!(
+                        "loaded entity {saved_entity} was not saved (raw bits = {})",
+                        saved_entity.to_bits()
+                    );
+                }
             }
         }
         result
@@ -521,7 +528,6 @@ mod tests {
         }
 
         {
-            // Hierarchy should not contain children
             let data = std::fs::read_to_string(PATH).unwrap();
             assert!(data.contains("Parent"));
             assert!(data.contains("Children"));
@@ -544,6 +550,64 @@ mod tests {
                 let parent = world.get::<Parent>(*child).unwrap().get();
                 assert_eq!(parent, entity);
             }
+        }
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_unsaved_entity() {
+        use std::fs::*;
+
+        use bevy::prelude::*;
+
+        use crate::save::{save_default, SavePlugin};
+
+        pub const PATH: &str = "test_unsaved_entity.ron";
+
+        {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, HierarchyPlugin, SavePlugin))
+                .add_systems(PreUpdate, save_default().into_file(PATH));
+
+            let entity = app
+                .world_mut()
+                .spawn(Save)
+                .with_children(|parent| {
+                    parent.spawn((Name::new("A"), Save));
+                    parent.spawn(Name::new("B")); // !!! DANGER: Unsaved, referenced entity
+                })
+                .id();
+
+            app.update();
+
+            let world = app.world();
+            let children = world.get::<Children>(entity).unwrap();
+            assert_eq!(children.iter().count(), 2);
+            for child in children.iter() {
+                let parent = world.get::<Parent>(*child).unwrap().get();
+                assert_eq!(parent, entity);
+            }
+        }
+
+        {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, HierarchyPlugin, LoadPlugin))
+                .add_systems(PreUpdate, load_from_file(PATH));
+
+            // Spawn an entity to offset indices
+            app.world_mut().spawn_empty();
+
+            app.update();
+
+            let world = app.world_mut();
+            let (_, children) = world.query::<(Entity, &Children)>().single(world);
+            assert_eq!(children.iter().count(), 2); // !!! DANGER: One of the entities must be broken
+            let mut found_broken = false;
+            for child in children.iter() {
+                found_broken |= world.get::<Name>(*child).is_none();
+            }
+            assert!(found_broken);
         }
 
         remove_file(PATH).unwrap();
