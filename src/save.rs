@@ -73,6 +73,7 @@ pub enum SaveSystem {
 #[derive(Resource)]
 pub struct Saved {
     pub scene: DynamicScene,
+    pub mapper: SceneMapper,
 }
 
 /// A [`Component`] which marks its [`Entity`] to be saved.
@@ -124,16 +125,20 @@ pub struct SaveInput {
     pub entities: EntityFilter,
     pub resources: SceneFilter,
     pub components: SceneFilter,
+    pub mapper: SceneMapper,
 }
 
 impl Default for SaveInput {
     fn default() -> Self {
         SaveInput {
-            entities: EntityFilter::default(),
+            // By default, select all entities.
+            entities: EntityFilter::any(),
             // By default, save all components on all saved entities.
             components: SceneFilter::allow_all(),
             // By default, do not save any resources. Most Bevy resources are not safely serializable.
             resources: SceneFilter::deny_all(),
+            // By default, map nothing.
+            mapper: SceneMapper::default(),
         }
     }
 }
@@ -157,7 +162,29 @@ pub fn filter_entities<F: 'static + QueryFilter>(
     input
 }
 
-pub fn map_components(In(input): In<SaveInput>) -> SaveInput {
+pub fn map_scene(In(mut input): In<SaveInput>, world: &mut World) -> SaveInput {
+    match &input.entities {
+        EntityFilter::Any => {
+            let entities: Vec<Entity> = world.iter_entities().map(|entity| entity.id()).collect();
+            for entity in entities {
+                input.mapper.apply(world.entity_mut(entity));
+            }
+        }
+        EntityFilter::Allow(entities) => {
+            for entity in entities {
+                input.mapper.apply(world.entity_mut(*entity));
+            }
+        }
+        EntityFilter::Block(blocked) => {
+            let entities: Vec<Entity> = world
+                .iter_entities()
+                .filter_map(|entity| (!blocked.contains(&entity.id())).then_some(entity.id()))
+                .collect();
+            for entity in entities {
+                input.mapper.apply(world.entity_mut(entity));
+            }
+        }
+    }
     input
 }
 
@@ -187,7 +214,10 @@ pub fn save_scene(In(input): In<SaveInput>, world: &World) -> Saved {
         }
     }
     let scene = builder.build();
-    Saved { scene }
+    Saved {
+        scene,
+        mapper: input.mapper,
+    }
 }
 
 /// A [`System`] which writes [`Saved`] data into a file at given `path`.
@@ -217,6 +247,18 @@ pub fn into_file_dyn(
     std::fs::write(&path, data.as_bytes())?;
     info!("saved into file: {path:?}");
     Ok(saved)
+}
+
+pub fn undo_map_scene(
+    In(mut result): In<Result<Saved, SaveError>>,
+    world: &mut World,
+) -> Result<Saved, SaveError> {
+    if let Ok(saved) = &mut result {
+        for entity in saved.scene.entities.iter().map(|e| e.entity) {
+            saved.mapper.undo(world.entity_mut(entity));
+        }
+    }
+    result
 }
 
 /// A [`System`] which finishes the save process.
@@ -399,13 +441,20 @@ where
         self
     }
 
+    pub fn map_component<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
+        self.input.mapper = self.input.mapper.map(m);
+        self
+    }
+
     /// Finishes the save pipeline by writing the saved data into a file at given `path`.
     pub fn into_file(self, path: impl Into<PathBuf>) -> SavePipeline {
         let Self { input, .. } = self;
         (move || input.clone())
             .pipe(filter_entities::<F>)
+            .pipe(map_scene)
             .pipe(save_scene)
             .pipe(into_file(path.into()))
+            .pipe(undo_map_scene)
             .pipe(finish)
             .in_set(SaveSystem::Save)
     }
@@ -417,9 +466,11 @@ where
         let Self { input, .. } = self;
         (move || input.clone())
             .pipe(filter_entities::<F>)
+            .pipe(map_scene)
             .pipe(save_scene)
             .pipe(file_from_request::<R>)
             .pipe(into_file_dyn)
+            .pipe(undo_map_scene)
             .pipe(finish)
             .pipe(remove_resource::<R>)
             .run_if(has_resource::<R>)
@@ -436,16 +487,18 @@ where
         let Self { input, .. } = self;
         (move || input.clone())
             .pipe(filter_entities::<F>)
+            .pipe(map_scene)
             .pipe(save_scene)
             .pipe(file_from_event::<R>)
             .pipe(into_file_dyn)
+            .pipe(undo_map_scene)
             .pipe(finish)
             .run_if(has_event::<R>)
             .in_set(SaveSystem::Save)
     }
 }
 
-/// A convenient builder for defining a [`SavePipeline`] with a dynamic [`SaveFilter`] which can be provided from any [`System`].
+/// A convenient builder for defining a [`SavePipeline`] with a dynamic [`SaveInput`] which can be provided from any [`System`].
 ///
 /// See [`save_with`], [`save_default_with`], and [`save_all_with`] on how to create an instance of this type.
 pub struct DynamicSavePipelineBuilder<F: QueryFilter, S: System<In = (), Out = SaveInput>> {
@@ -462,8 +515,10 @@ where
         let Self { input_source, .. } = self;
         input_source
             .pipe(filter_entities::<F>)
+            .pipe(map_scene)
             .pipe(save_scene)
             .pipe(into_file(path.into()))
+            .pipe(undo_map_scene)
             .pipe(finish)
             .in_set(SaveSystem::Save)
     }
@@ -475,9 +530,11 @@ where
         let Self { input_source, .. } = self;
         input_source
             .pipe(filter_entities::<F>)
+            .pipe(map_scene)
             .pipe(save_scene)
             .pipe(file_from_request::<R>)
             .pipe(into_file_dyn)
+            .pipe(undo_map_scene)
             .pipe(finish)
             .pipe(remove_resource::<R>)
             .run_if(has_resource::<R>)
@@ -494,9 +551,11 @@ where
         let Self { input_source, .. } = self;
         input_source
             .pipe(filter_entities::<F>)
+            .pipe(map_scene)
             .pipe(save_scene)
             .pipe(file_from_event::<R>)
             .pipe(into_file_dyn)
+            .pipe(undo_map_scene)
             .pipe(finish)
             .run_if(has_event::<R>)
             .in_set(SaveSystem::Save)
@@ -585,7 +644,99 @@ pub fn save_all_with<S: IntoSystem<(), SaveInput, M>, M>(
     }
 }
 
-pub trait MapComponent<T: Component> {}
+pub trait MapComponent<T: Component>: 'static + Clone + Send + Sync {
+    type Output: Component;
+
+    fn map_component(&self, component: &T) -> Self::Output;
+}
+
+impl<F: Fn(&T) -> U, T: Component, U: Component> MapComponent<T> for F
+where
+    F: 'static + Clone + Send + Sync,
+{
+    type Output = U;
+
+    fn map_component(&self, component: &T) -> Self::Output {
+        self(component)
+    }
+}
+
+trait ComponentMapper: 'static + Send + Sync {
+    fn apply(&mut self, entity: &mut EntityWorldMut);
+
+    fn replace(&mut self, entity: &mut EntityWorldMut);
+
+    fn undo(&mut self, entity: &mut EntityWorldMut);
+
+    fn clone_dyn(&self) -> Box<dyn ComponentMapper>;
+}
+
+struct ComponentMapperImpl<T: Component, M: MapComponent<T>>(M, PhantomData<T>);
+
+impl<T: Component, M: MapComponent<T>> ComponentMapperImpl<T, M> {
+    fn new(m: M) -> Self {
+        Self(m, PhantomData)
+    }
+}
+
+impl<T: Component, M: MapComponent<T>> ComponentMapper for ComponentMapperImpl<T, M> {
+    fn apply(&mut self, entity: &mut EntityWorldMut) {
+        if let Some(component) = entity.get::<T>() {
+            entity.insert(self.0.map_component(component));
+        }
+    }
+
+    fn replace(&mut self, entity: &mut EntityWorldMut) {
+        if let Some(component) = entity.take::<T>() {
+            entity.insert(self.0.map_component(&component));
+        }
+    }
+
+    fn undo(&mut self, entity: &mut EntityWorldMut) {
+        entity.remove::<M::Output>();
+    }
+
+    fn clone_dyn(&self) -> Box<dyn ComponentMapper> {
+        Box::new(Self::new(self.0.clone()))
+    }
+}
+
+type ComponentMapperDyn = Box<dyn ComponentMapper>;
+
+#[derive(Default)]
+pub struct SceneMapper(Vec<ComponentMapperDyn>);
+
+impl SceneMapper {
+    pub fn map<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
+        self.0.push(Box::new(ComponentMapperImpl::new(m)));
+        self
+    }
+
+    pub(crate) fn apply(&mut self, mut entity: EntityWorldMut) {
+        for mapper in &mut self.0 {
+            mapper.apply(&mut entity);
+        }
+    }
+
+    pub(crate) fn replace(&mut self, mut entity: EntityWorldMut) {
+        for mapper in &mut self.0 {
+            mapper.replace(&mut entity);
+        }
+    }
+
+    pub(crate) fn undo(&mut self, mut entity: EntityWorldMut) {
+        for mapper in &mut self.0 {
+            mapper.undo(&mut entity);
+        }
+    }
+}
+
+// TODO: Can we avoid this clone?
+impl Clone for SceneMapper {
+    fn clone(&self) -> Self {
+        Self(self.0.iter().map(|mapper| mapper.clone_dyn()).collect())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -752,6 +903,38 @@ mod tests {
         let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
         assert!(!data.contains("Foo"));
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_map_component() {
+        pub const PATH: &str = "test_map_component.ron";
+
+        #[derive(Component, Default)]
+        struct Foo(#[allow(dead_code)] u32); // Not serializable
+
+        #[derive(Component, Default, Reflect)]
+        #[reflect(Component)]
+        struct Bar(u32); // Serializable
+
+        let mut app = app();
+        app.register_type::<Bar>().add_systems(
+            PreUpdate,
+            save_default()
+                .map_component::<Foo>(|Foo(i): &Foo| Bar(*i))
+                .into_file(PATH),
+        );
+
+        let entity = app.world_mut().spawn((Foo(12), Save)).id();
+        app.update();
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Bar"));
+        assert!(data.contains("(12)"));
+        assert!(!data.contains("Foo"));
+        assert!(app.world().entity(entity).contains::<Foo>());
+        assert!(!app.world().entity(entity).contains::<Bar>());
 
         remove_file(PATH).unwrap();
     }

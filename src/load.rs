@@ -44,8 +44,10 @@ use bevy_utils::tracing::{error, info, warn};
 use moonshine_util::system::*;
 use serde::de::DeserializeSeed;
 
-use crate::save::{Save, SaveSystem, Saved};
-use crate::FilePath;
+use crate::{
+    save::{Save, SaveSystem, Saved, SceneMapper},
+    FilePath,
+};
 
 /// A [`Plugin`] which configures [`LoadSystem`] in [`PreUpdate`] schedule.
 pub struct LoadPlugin;
@@ -185,8 +187,13 @@ pub type LoadPipeline = SystemConfigs;
 /// }
 /// ```
 pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
+    load_from_file_with_mapper(path, SceneMapper::default())
+}
+
+// TODO: LoadPipelineBuilder
+pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper) -> LoadPipeline {
     let path = path.into();
-    from_file(path)
+    from_file(path, mapper)
         .pipe(unload::<DefaultUnloadFilter>)
         .pipe(load)
         .pipe(insert_into_loaded(Save))
@@ -221,7 +228,16 @@ pub fn load_from_file_on_request<R>() -> LoadPipeline
 where
     R: FilePath + Resource,
 {
+    load_from_file_on_request_with_mapper::<R>(SceneMapper::default())
+}
+
+// TODO: LoadPipelineBuilder
+pub fn load_from_file_on_request_with_mapper<R>(mapper: SceneMapper) -> LoadPipeline
+where
+    R: FilePath + Resource,
+{
     file_from_request::<R>
+        .pipe(move |In(path): In<PathBuf>| (path, mapper.clone()))
         .pipe(from_file_dyn)
         .pipe(unload::<DefaultUnloadFilter>)
         .pipe(load)
@@ -239,7 +255,16 @@ pub fn load_from_file_on_event<R>() -> LoadPipeline
 where
     R: FilePath + Event,
 {
+    load_from_file_on_event_with_mapper::<R>(SceneMapper::default())
+}
+
+// TODO: LoadPipelineBuilder
+pub fn load_from_file_on_event_with_mapper<R>(mapper: SceneMapper) -> LoadPipeline
+where
+    R: FilePath + Event,
+{
     file_from_event::<R>
+        .pipe(move |In(path): In<PathBuf>| (path, mapper.clone()))
         .pipe(from_file_dyn)
         .pipe(unload::<DefaultUnloadFilter>)
         .pipe(load)
@@ -252,6 +277,7 @@ where
 /// A [`System`] which reads [`Saved`] data from a file at given `path`.
 pub fn from_file(
     path: impl Into<PathBuf>,
+    mapper: SceneMapper,
 ) -> impl Fn(Res<AppTypeRegistry>) -> Result<Saved, LoadError> {
     let path = path.into();
     move |type_registry| {
@@ -263,13 +289,16 @@ pub fn from_file(
             scene_deserializer.deserialize(&mut deserializer)?
         };
         info!("loaded from file: {path:?}");
-        Ok(Saved { scene })
+        Ok(Saved {
+            scene,
+            mapper: mapper.clone(),
+        })
     }
 }
 
 /// A [`System`] which reads [`Saved`] data from a file with its path defined at runtime.
 pub fn from_file_dyn(
-    In(path): In<PathBuf>,
+    In((path, mapper)): In<(PathBuf, SceneMapper)>,
     type_registry: Res<AppTypeRegistry>,
 ) -> Result<Saved, LoadError> {
     let input = std::fs::read(&path)?;
@@ -280,7 +309,7 @@ pub fn from_file_dyn(
         scene_deserializer.deserialize(&mut deserializer)?
     };
     info!("loaded from file: {path:?}");
-    Ok(Saved { scene })
+    Ok(Saved { scene, mapper })
 }
 
 pub type DefaultUnloadFilter = Or<(With<Save>, With<Unload>)>;
@@ -308,9 +337,14 @@ pub fn load(
     In(result): In<Result<Saved, LoadError>>,
     world: &mut World,
 ) -> Result<Loaded, LoadError> {
-    let Saved { scene } = result?;
+    let Saved { scene, mut mapper } = result?;
     let mut entity_map = EntityHashMap::default();
     scene.write_to_world(world, &mut entity_map)?;
+    for entity in entity_map.values() {
+        if let Some(entity) = world.get_entity_mut(*entity) {
+            mapper.replace(entity);
+        }
+    }
     Ok(Loaded { entity_map })
 }
 
@@ -609,6 +643,37 @@ mod tests {
             }
             assert!(found_broken);
         }
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_load_with_mapper() {
+        pub const PATH: &str = "test_load_with_mapper.ron";
+
+        write(PATH, DATA).unwrap();
+
+        let mut app = app();
+
+        #[derive(Component)]
+        struct Foo; // Not serializable
+
+        app.add_systems(
+            PreUpdate,
+            load_from_file_with_mapper(PATH, SceneMapper::default().map::<Dummy>(|_: &Dummy| Foo)),
+        );
+
+        app.update();
+
+        let world = app.world_mut();
+        assert!(world
+            .query_filtered::<(), With<Foo>>()
+            .get_single(world)
+            .is_ok());
+        assert!(world
+            .query_filtered::<(), With<Dummy>>()
+            .get_single(world)
+            .is_err());
 
         remove_file(PATH).unwrap();
     }
