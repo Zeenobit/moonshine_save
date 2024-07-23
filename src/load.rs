@@ -340,9 +340,11 @@ pub fn load(
     let Saved { scene, mut mapper } = result?;
     let mut entity_map = EntityHashMap::default();
     scene.write_to_world(world, &mut entity_map)?;
-    for entity in entity_map.values() {
-        if let Some(entity) = world.get_entity_mut(*entity) {
-            mapper.replace(entity);
+    if !mapper.is_empty() {
+        for entity in entity_map.values() {
+            if let Some(entity) = world.get_entity_mut(*entity) {
+                mapper.replace(entity);
+            }
         }
     }
     Ok(Loaded { entity_map })

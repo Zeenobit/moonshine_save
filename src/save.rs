@@ -163,25 +163,28 @@ pub fn filter_entities<F: 'static + QueryFilter>(
 }
 
 pub fn map_scene(In(mut input): In<SaveInput>, world: &mut World) -> SaveInput {
-    match &input.entities {
-        EntityFilter::Any => {
-            let entities: Vec<Entity> = world.iter_entities().map(|entity| entity.id()).collect();
-            for entity in entities {
-                input.mapper.apply(world.entity_mut(entity));
+    if !input.mapper.is_empty() {
+        match &input.entities {
+            EntityFilter::Any => {
+                let entities: Vec<Entity> =
+                    world.iter_entities().map(|entity| entity.id()).collect();
+                for entity in entities {
+                    input.mapper.apply(world.entity_mut(entity));
+                }
             }
-        }
-        EntityFilter::Allow(entities) => {
-            for entity in entities {
-                input.mapper.apply(world.entity_mut(*entity));
+            EntityFilter::Allow(entities) => {
+                for entity in entities {
+                    input.mapper.apply(world.entity_mut(*entity));
+                }
             }
-        }
-        EntityFilter::Block(blocked) => {
-            let entities: Vec<Entity> = world
-                .iter_entities()
-                .filter_map(|entity| (!blocked.contains(&entity.id())).then_some(entity.id()))
-                .collect();
-            for entity in entities {
-                input.mapper.apply(world.entity_mut(entity));
+            EntityFilter::Block(blocked) => {
+                let entities: Vec<Entity> = world
+                    .iter_entities()
+                    .filter_map(|entity| (!blocked.contains(&entity.id())).then_some(entity.id()))
+                    .collect();
+                for entity in entities {
+                    input.mapper.apply(world.entity_mut(entity));
+                }
             }
         }
     }
@@ -254,8 +257,10 @@ pub fn undo_map_scene(
     world: &mut World,
 ) -> Result<Saved, SaveError> {
     if let Ok(saved) = &mut result {
-        for entity in saved.scene.entities.iter().map(|e| e.entity) {
-            saved.mapper.undo(world.entity_mut(entity));
+        if !saved.mapper.is_empty() {
+            for entity in saved.scene.entities.iter().map(|e| e.entity) {
+                saved.mapper.undo(world.entity_mut(entity));
+            }
         }
     }
     result
@@ -710,6 +715,10 @@ impl SceneMapper {
     pub fn map<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
         self.0.push(Box::new(ComponentMapperImpl::new(m)));
         self
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     pub(crate) fn apply(&mut self, mut entity: EntityWorldMut) {
