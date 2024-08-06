@@ -3,7 +3,7 @@ use std::fs;
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
 
-const SAVE_PATH: &str = "test_load_hierarchy.ron";
+const SAVE_PATH: &str = "test_hierarchy.ron";
 
 fn app() -> App {
     let mut app = App::new();
