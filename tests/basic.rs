@@ -78,7 +78,7 @@ fn it_works() {
 
     {
         let mut app = app();
-        app.add_systems(PreUpdate, load(static_file(SAVE_PATH)));
+        app.add_systems(PreUpdate, load(file_from_path(SAVE_PATH)));
 
         // Spawn an entity to offset indices
         app.world_mut().spawn_empty();

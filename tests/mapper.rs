@@ -82,7 +82,7 @@ fn it_works() {
         app.add_systems(
             PreUpdate,
             load(
-                static_file(SAVE_PATH)
+                file_from_path(SAVE_PATH)
                     .map_component(|&SerializedFoo(data): &SerializedFoo| Foo(Box::new(data))),
             ),
         );

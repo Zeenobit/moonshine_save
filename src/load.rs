@@ -190,14 +190,14 @@ pub type LoadPipeline = SystemConfigs;
 /// ```
 #[deprecated]
 pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
-    load(static_file(path))
+    load(file_from_path(path))
 }
 
 #[deprecated]
 pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper) -> LoadPipeline {
     load(LoadPipelineBuilder {
         mapper,
-        ..static_file(path)
+        ..file_from_path(path)
     })
 }
 
@@ -326,7 +326,7 @@ where
     }
 }
 
-pub fn static_file(path: impl Into<PathBuf>) -> LoadPipelineBuilder<StaticFile> {
+pub fn file_from_path(path: impl Into<PathBuf>) -> LoadPipelineBuilder<StaticFile> {
     LoadPipelineBuilder {
         trigger: StaticFile(path.into()),
         mapper: Default::default(),
@@ -560,7 +560,7 @@ mod tests {
         write(PATH, DATA).unwrap();
 
         let mut app = app();
-        app.add_systems(PreUpdate, load(static_file(PATH)));
+        app.add_systems(PreUpdate, load(file_from_path(PATH)));
 
         app.update();
 
@@ -679,7 +679,7 @@ mod tests {
         {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, HierarchyPlugin, LoadPlugin))
-                .add_systems(PreUpdate, load(static_file(PATH)));
+                .add_systems(PreUpdate, load(file_from_path(PATH)));
 
             // Spawn an entity to offset indices
             app.world_mut().spawn_empty();
@@ -736,7 +736,7 @@ mod tests {
         {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, HierarchyPlugin, LoadPlugin))
-                .add_systems(PreUpdate, load(static_file(PATH)));
+                .add_systems(PreUpdate, load(file_from_path(PATH)));
 
             // Spawn an entity to offset indices
             app.world_mut().spawn_empty();
@@ -769,7 +769,7 @@ mod tests {
 
         app.add_systems(
             PreUpdate,
-            load(static_file(PATH).map_component(|_: &Dummy| Foo)),
+            load(file_from_path(PATH).map_component(|_: &Dummy| Foo)),
         );
 
         app.update();
