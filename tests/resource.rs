@@ -39,7 +39,7 @@ fn it_works() {
 
     {
         let mut app = app();
-        app.add_systems(PreUpdate, load_from_file(SAVE_PATH));
+        app.add_systems(PreUpdate, load(static_file(SAVE_PATH)));
 
         app.update();
 

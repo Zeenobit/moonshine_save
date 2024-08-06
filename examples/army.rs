@@ -45,7 +45,7 @@ fn main() {
         PreUpdate,
         save_default().into_file_on_request::<SaveRequest>(),
     )
-    .add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>())
+    .add_systems(PreUpdate, load(file_from_resource::<LoadRequest>()))
     .run();
 }
 

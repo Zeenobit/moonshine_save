@@ -33,7 +33,8 @@
 //! ```
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::marker::PhantomData;
+use std::path::PathBuf;
 
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::entity::EntityHashMap;
@@ -44,6 +45,7 @@ use bevy_utils::tracing::{error, info, warn};
 use moonshine_util::system::*;
 use serde::de::DeserializeSeed;
 
+use crate::save::MapComponent;
 use crate::{
     save::{Save, SaveSystem, Saved, SceneMapper},
     FilePath,
@@ -186,19 +188,17 @@ pub type LoadPipeline = SystemConfigs;
 ///     todo!()
 /// }
 /// ```
+#[deprecated]
 pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
-    load_from_file_with_mapper(path, SceneMapper::default())
+    load(static_file(path))
 }
 
-// TODO: LoadPipelineBuilder
+#[deprecated]
 pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper) -> LoadPipeline {
-    let path = path.into();
-    from_file(path, mapper)
-        .pipe(unload::<DefaultUnloadFilter>)
-        .pipe(load)
-        .pipe(insert_into_loaded(Save))
-        .pipe(finish)
-        .in_set(LoadSystem::Load)
+    load(LoadPipelineBuilder {
+        mapper,
+        ..static_file(path)
+    })
 }
 
 /// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Resource`] is present.
@@ -224,52 +224,140 @@ pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper)
 /// app.add_plugins((MinimalPlugins, LoadPlugin))
 ///     .add_systems(Update, load_from_file_on_request::<LoadRequest>());
 /// ```
+#[deprecated]
 pub fn load_from_file_on_request<R>() -> LoadPipeline
 where
     R: FilePath + Resource,
 {
-    load_from_file_on_request_with_mapper::<R>(SceneMapper::default())
+    load(file_from_resource::<R>())
 }
 
-// TODO: LoadPipelineBuilder
+#[deprecated]
 pub fn load_from_file_on_request_with_mapper<R>(mapper: SceneMapper) -> LoadPipeline
 where
     R: FilePath + Resource,
 {
-    file_from_request::<R>
-        .pipe(from_file_dyn)
-        .pipe(move |In(saved): In<Result<Saved, LoadError>>| {
-            saved.map(|saved| Saved {
-                mapper: mapper.clone(),
-                ..saved
-            })
-        })
-        .pipe(unload::<DefaultUnloadFilter>)
-        .pipe(load)
-        .pipe(insert_into_loaded(Save))
-        .pipe(finish)
-        .pipe(remove_resource::<R>)
-        .run_if(has_resource::<R>)
-        .in_set(LoadSystem::Load)
+    load(LoadPipelineBuilder {
+        mapper,
+        ..file_from_resource::<R>()
+    })
 }
 
 /// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Event`] is sent.
 ///
 /// Note: If multiple events are sent in a single update cycle, only the first one is processed.
+#[deprecated]
 pub fn load_from_file_on_event<R>() -> LoadPipeline
 where
     R: FilePath + Event,
 {
-    load_from_file_on_event_with_mapper::<R>(SceneMapper::default())
+    load(file_from_event::<R>())
 }
 
 // TODO: LoadPipelineBuilder
+#[deprecated]
 pub fn load_from_file_on_event_with_mapper<R>(mapper: SceneMapper) -> LoadPipeline
 where
     R: FilePath + Event,
 {
-    file_from_event::<R>
-        .pipe(from_file_dyn)
+    load(LoadPipelineBuilder {
+        mapper,
+        ..file_from_event::<R>()
+    })
+}
+
+pub trait LoadPipelineTrigger: 'static + Send + Sync {
+    fn head(&self) -> impl System<In = (), Out = Result<Saved, LoadError>>;
+
+    fn tail(&self, pipeline: impl System<In = (), Out = ()>) -> LoadPipeline {
+        pipeline.into_configs()
+    }
+}
+
+pub struct StaticFile(PathBuf);
+
+impl LoadPipelineTrigger for StaticFile {
+    fn head(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
+        IntoSystem::into_system(load_static_file(self.0.clone(), Default::default()))
+    }
+}
+
+pub struct FileFromResource<R>(PhantomData<R>);
+
+impl<R> Default for FileFromResource<R> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<R> LoadPipelineTrigger for FileFromResource<R>
+where
+    R: FilePath + Resource,
+{
+    fn head(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
+        get_file_from_resource::<R>.pipe(load_file)
+    }
+
+    fn tail(&self, pipeline: impl System<In = (), Out = ()>) -> LoadPipeline {
+        pipeline
+            .pipe(remove_resource::<R>)
+            .run_if(has_resource::<R>)
+    }
+}
+
+pub struct FileFromEvent<E>(PhantomData<E>);
+
+impl<E> Default for FileFromEvent<E> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<E> LoadPipelineTrigger for FileFromEvent<E>
+where
+    E: FilePath + Event,
+{
+    fn head(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
+        get_file_from_event::<E>.pipe(load_file)
+    }
+
+    fn tail(&self, pipeline: impl System<In = (), Out = ()>) -> LoadPipeline {
+        pipeline.into_configs()
+    }
+}
+
+pub fn static_file(path: impl Into<PathBuf>) -> LoadPipelineBuilder<StaticFile> {
+    LoadPipelineBuilder {
+        trigger: StaticFile(path.into()),
+        mapper: Default::default(),
+    }
+}
+
+pub fn file_from_resource<R>() -> LoadPipelineBuilder<FileFromResource<R>>
+where
+    R: FilePath + Resource,
+{
+    LoadPipelineBuilder {
+        trigger: FileFromResource(PhantomData),
+        mapper: Default::default(),
+    }
+}
+
+pub fn file_from_event<E>() -> LoadPipelineBuilder<FileFromEvent<E>>
+where
+    E: FilePath + Event,
+{
+    LoadPipelineBuilder {
+        trigger: FileFromEvent(PhantomData),
+        mapper: Default::default(),
+    }
+}
+
+pub fn load<T: LoadPipelineTrigger>(
+    LoadPipelineBuilder { trigger, mapper }: LoadPipelineBuilder<T>,
+) -> LoadPipeline {
+    let pipeline = trigger
+        .head()
         .pipe(move |In(saved): In<Result<Saved, LoadError>>| {
             saved.map(|saved| Saved {
                 mapper: mapper.clone(),
@@ -277,15 +365,27 @@ where
             })
         })
         .pipe(unload::<DefaultUnloadFilter>)
-        .pipe(load)
+        .pipe(write_to_world)
         .pipe(insert_into_loaded(Save))
-        .pipe(finish)
-        .run_if(has_event::<R>)
-        .in_set(LoadSystem::Load)
+        .pipe(finish);
+
+    trigger.tail(pipeline).in_set(LoadSystem::Load)
+}
+
+pub struct LoadPipelineBuilder<T> {
+    trigger: T,
+    mapper: SceneMapper,
+}
+
+impl<T: LoadPipelineTrigger> LoadPipelineBuilder<T> {
+    pub fn map_component<U: Component>(mut self, m: impl MapComponent<U>) -> Self {
+        self.mapper = self.mapper.map(m);
+        self
+    }
 }
 
 /// A [`System`] which reads [`Saved`] data from a file at given `path`.
-pub fn from_file(
+pub fn load_static_file(
     path: impl Into<PathBuf>,
     mapper: SceneMapper,
 ) -> impl Fn(Res<AppTypeRegistry>) -> Result<Saved, LoadError> {
@@ -307,7 +407,7 @@ pub fn from_file(
 }
 
 /// A [`System`] which reads [`Saved`] data from a file with its path defined at runtime.
-pub fn from_file_dyn(
+pub fn load_file(
     In(path): In<PathBuf>,
     type_registry: Res<AppTypeRegistry>,
 ) -> Result<Saved, LoadError> {
@@ -346,7 +446,7 @@ pub fn unload<Filter: QueryFilter>(
 }
 
 /// A [`System`] which writes [`Saved`] data into current [`World`].
-pub fn load(
+pub fn write_to_world(
     In(result): In<Result<Saved, LoadError>>,
     world: &mut World,
 ) -> Result<Loaded, LoadError> {
@@ -397,7 +497,7 @@ pub fn finish(In(result): In<Result<Loaded, LoadError>>, world: &mut World) {
 }
 
 /// A [`System`] which extracts the path from a [`LoadFromFileRequest`] [`Resource`].
-pub fn file_from_request<R>(request: Res<R>) -> PathBuf
+pub fn get_file_from_resource<R>(request: Res<R>) -> PathBuf
 where
     R: FilePath + Resource,
 {
@@ -411,7 +511,7 @@ where
 /// If multiple events are sent in a single update cycle, only the first one is processed.
 ///
 /// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
-pub fn file_from_event<R>(mut events: EventReader<R>) -> PathBuf
+pub fn get_file_from_event<R>(mut events: EventReader<R>) -> PathBuf
 where
     R: FilePath + Event,
 {
@@ -423,15 +523,9 @@ where
     event.path().to_owned()
 }
 
-/// Any type which may be used to trigger [`load_from_file_on_request`] or [`load_from_file_on_event`].
-#[deprecated(note = "use `FilePath` instead")]
-pub trait LoadFromFileRequest {
-    fn path(&self) -> &Path;
-}
-
 #[cfg(test)]
 mod tests {
-    use std::fs::*;
+    use std::{fs::*, path::Path};
 
     use bevy::prelude::*;
 
@@ -466,7 +560,7 @@ mod tests {
         write(PATH, DATA).unwrap();
 
         let mut app = app();
-        app.add_systems(PreUpdate, load_from_file(PATH));
+        app.add_systems(PreUpdate, load(static_file(PATH)));
 
         app.update();
 
@@ -496,7 +590,7 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_systems(PreUpdate, load_from_file_on_request::<LoadRequest>());
+        app.add_systems(PreUpdate, load(file_from_resource::<LoadRequest>()));
 
         app.world_mut().insert_resource(LoadRequest);
         app.update();
@@ -527,7 +621,7 @@ mod tests {
 
         let mut app = app();
         app.add_event::<LoadRequest>()
-            .add_systems(PreUpdate, load_from_file_on_event::<LoadRequest>());
+            .add_systems(PreUpdate, load(file_from_event::<LoadRequest>()));
 
         app.world_mut().send_event(LoadRequest);
         app.update();
@@ -585,7 +679,7 @@ mod tests {
         {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, HierarchyPlugin, LoadPlugin))
-                .add_systems(PreUpdate, load_from_file(PATH));
+                .add_systems(PreUpdate, load(static_file(PATH)));
 
             // Spawn an entity to offset indices
             app.world_mut().spawn_empty();
@@ -642,7 +736,7 @@ mod tests {
         {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, HierarchyPlugin, LoadPlugin))
-                .add_systems(PreUpdate, load_from_file(PATH));
+                .add_systems(PreUpdate, load(static_file(PATH)));
 
             // Spawn an entity to offset indices
             app.world_mut().spawn_empty();
@@ -675,7 +769,7 @@ mod tests {
 
         app.add_systems(
             PreUpdate,
-            load_from_file_with_mapper(PATH, SceneMapper::default().map::<Dummy>(|_: &Dummy| Foo)),
+            load(static_file(PATH).map_component(|_: &Dummy| Foo)),
         );
 
         app.update();

@@ -8,8 +8,8 @@ pub mod save;
 /// Common elements for saving/loading world state.
 pub mod prelude {
     pub use crate::load::{
-        load_from_file, load_from_file_on_event, load_from_file_on_request, LoadError, LoadPlugin,
-        LoadSystem, Loaded, Unload,
+        file_from_event, file_from_resource, load, static_file, LoadError, LoadPlugin, LoadSystem,
+        Loaded, Unload,
     };
 
     pub use crate::save::{

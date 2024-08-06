@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use moonshine_save::{load::load_from_file_with_mapper, prelude::*, save::SceneMapper};
+use moonshine_save::prelude::*;
 
 const SAVE_PATH: &str = "test_mapper.ron";
 
@@ -81,11 +81,9 @@ fn it_works() {
         let mut app = app();
         app.add_systems(
             PreUpdate,
-            load_from_file_with_mapper(
-                SAVE_PATH,
-                SceneMapper::default().map::<SerializedFoo>(|serialized_foo: &SerializedFoo| {
-                    Foo(Box::new(serialized_foo.0))
-                }),
+            load(
+                static_file(SAVE_PATH)
+                    .map_component(|&SerializedFoo(data): &SerializedFoo| Foo(Box::new(data))),
             ),
         );
 
