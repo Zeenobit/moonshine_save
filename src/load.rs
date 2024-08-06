@@ -237,8 +237,13 @@ where
     R: FilePath + Resource,
 {
     file_from_request::<R>
-        .pipe(move |In(path): In<PathBuf>| (path, mapper.clone()))
         .pipe(from_file_dyn)
+        .pipe(move |In(saved): In<Result<Saved, LoadError>>| {
+            saved.map(|saved| Saved {
+                mapper: mapper.clone(),
+                ..saved
+            })
+        })
         .pipe(unload::<DefaultUnloadFilter>)
         .pipe(load)
         .pipe(insert_into_loaded(Save))
@@ -264,8 +269,13 @@ where
     R: FilePath + Event,
 {
     file_from_event::<R>
-        .pipe(move |In(path): In<PathBuf>| (path, mapper.clone()))
         .pipe(from_file_dyn)
+        .pipe(move |In(saved): In<Result<Saved, LoadError>>| {
+            saved.map(|saved| Saved {
+                mapper: mapper.clone(),
+                ..saved
+            })
+        })
         .pipe(unload::<DefaultUnloadFilter>)
         .pipe(load)
         .pipe(insert_into_loaded(Save))
@@ -298,7 +308,7 @@ pub fn from_file(
 
 /// A [`System`] which reads [`Saved`] data from a file with its path defined at runtime.
 pub fn from_file_dyn(
-    In((path, mapper)): In<(PathBuf, SceneMapper)>,
+    In(path): In<PathBuf>,
     type_registry: Res<AppTypeRegistry>,
 ) -> Result<Saved, LoadError> {
     let input = std::fs::read(&path)?;
@@ -309,7 +319,10 @@ pub fn from_file_dyn(
         scene_deserializer.deserialize(&mut deserializer)?
     };
     info!("loaded from file: {path:?}");
-    Ok(Saved { scene, mapper })
+    Ok(Saved {
+        scene,
+        mapper: Default::default(),
+    })
 }
 
 pub type DefaultUnloadFilter = Or<(With<Save>, With<Unload>)>;
