@@ -3,7 +3,7 @@ use std::fs;
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
 
-const SAVE_PATH: &str = "test.ron";
+const SAVE_PATH: &str = "test_basic.ron";
 
 #[derive(Bundle)]
 struct FooBundle {
@@ -32,7 +32,7 @@ struct FooBar(Entity);
 
 impl FromWorld for FooBar {
     fn from_world(_: &mut World) -> Self {
-        Self(Entity::from_raw(u32::MAX))
+        Self(Entity::PLACEHOLDER)
     }
 }
 
