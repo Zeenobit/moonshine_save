@@ -58,7 +58,7 @@ fn it_works() {
             PreUpdate,
             save_default()
                 .map_component::<Foo>(|Foo(data): &Foo| SerializedFoo(data.secret()))
-                .into_file(SAVE_PATH),
+                .into(file_from_path(SAVE_PATH)),
         );
 
         // Spawn some entities

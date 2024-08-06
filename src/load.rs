@@ -611,7 +611,7 @@ mod tests {
         {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, HierarchyPlugin, SavePlugin))
-                .add_systems(PreUpdate, save_default().into_file(PATH));
+                .add_systems(PreUpdate, save_default().into(file_from_path(PATH)));
 
             let entity = app
                 .world_mut()
@@ -674,7 +674,7 @@ mod tests {
         {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, HierarchyPlugin, SavePlugin))
-                .add_systems(PreUpdate, save_default().into_file(PATH));
+                .add_systems(PreUpdate, save_default().into(file_from_path(PATH)));
 
             let entity = app
                 .world_mut()

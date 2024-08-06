@@ -38,7 +38,10 @@ use bevy_utils::{
 };
 use moonshine_util::system::*;
 
-use crate::{FilePath, MapComponent, SceneMapper};
+use crate::{
+    file_from_event, file_from_path, file_from_resource, FileFromEvent, FileFromPath,
+    FileFromResource, FilePath, MapComponent, Pipeline, SceneMapper,
+};
 
 /// A [`Plugin`] which configures [`SaveSystem`] in [`PreUpdate`] schedule.
 pub struct SavePlugin;
@@ -191,9 +194,6 @@ pub fn map_scene(In(mut input): In<SaveInput>, world: &mut World) -> SaveInput {
     input
 }
 
-/// A collection of systems ([`SystemConfigs`]) which perform the save process.
-pub type SavePipeline = SystemConfigs;
-
 /// A [`System`] which creates [`Saved`] data from all entities with given `Filter`.
 ///
 /// # Usage
@@ -224,7 +224,7 @@ pub fn save_scene(In(input): In<SaveInput>, world: &World) -> Saved {
 }
 
 /// A [`System`] which writes [`Saved`] data into a file at given `path`.
-pub fn into_file(
+pub fn write_to_static_file(
     path: PathBuf,
 ) -> impl Fn(In<Saved>, Res<AppTypeRegistry>) -> Result<Saved, SaveError> {
     move |In(saved), type_registry| {
@@ -239,7 +239,7 @@ pub fn into_file(
 }
 
 /// A [`System`] which writes [`Saved`] data into a file with its path defined at runtime.
-pub fn into_file_dyn(
+pub fn write_to_file(
     In((path, saved)): In<(PathBuf, Saved)>,
     type_registry: Res<AppTypeRegistry>,
 ) -> Result<Saved, SaveError> {
@@ -270,7 +270,7 @@ pub fn undo_map_scene(
 ///
 /// # Usage
 /// All save pipelines should end with this system.
-pub fn finish(In(result): In<Result<Saved, SaveError>>, world: &mut World) {
+pub fn insert_saved(In(result): In<Result<Saved, SaveError>>, world: &mut World) {
     match result {
         Ok(saved) => world.insert_resource(saved),
         Err(why) => error!("save failed: {why:?}"),
@@ -278,7 +278,7 @@ pub fn finish(In(result): In<Result<Saved, SaveError>>, world: &mut World) {
 }
 
 /// A [`System`] which extracts the path from a [`SaveIntoFileRequest`] [`Resource`].
-pub fn file_from_request<R>(In(saved): In<Saved>, request: Res<R>) -> (PathBuf, Saved)
+pub fn get_file_from_resource<R>(In(saved): In<Saved>, request: Res<R>) -> (PathBuf, Saved)
 where
     R: FilePath + Resource,
 {
@@ -293,7 +293,7 @@ where
 /// If multiple events are sent in a single update cycle, only the first one is processed.
 ///
 /// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
-pub fn file_from_event<R>(In(saved): In<Saved>, mut events: EventReader<R>) -> (PathBuf, Saved)
+pub fn get_file_from_event<R>(In(saved): In<Saved>, mut events: EventReader<R>) -> (PathBuf, Saved)
 where
     R: FilePath + Event,
 {
@@ -451,35 +451,27 @@ where
         self
     }
 
-    /// Finishes the save pipeline by writing the saved data into a file at given `path`.
-    pub fn into_file(self, path: impl Into<PathBuf>) -> SavePipeline {
+    pub fn into(self, p: impl SavePipeline) -> SystemConfigs {
         let Self { input, .. } = self;
-        (move || input.clone())
+        let system = (move || input.clone())
             .pipe(filter_entities::<F>)
             .pipe(map_scene)
-            .pipe(save_scene)
-            .pipe(into_file(path.into()))
-            .pipe(undo_map_scene)
-            .pipe(finish)
-            .in_set(SaveSystem::Save)
+            .pipe(save_scene);
+        let system = p.save(system).pipe(undo_map_scene).pipe(insert_saved);
+        p.finish(system).in_set(SaveSystem::Save)
+    }
+
+    #[deprecated(note = "use `into` instead")]
+    pub fn into_file(self, path: impl Into<PathBuf>) -> SystemConfigs {
+        self.into(file_from_path(path))
     }
 
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
     ///
     /// The save pipeline will only be triggered if a resource of type `R` is present.
-    pub fn into_file_on_request<R: FilePath + Resource>(self) -> SavePipeline {
-        let Self { input, .. } = self;
-        (move || input.clone())
-            .pipe(filter_entities::<F>)
-            .pipe(map_scene)
-            .pipe(save_scene)
-            .pipe(file_from_request::<R>)
-            .pipe(into_file_dyn)
-            .pipe(undo_map_scene)
-            .pipe(finish)
-            .pipe(remove_resource::<R>)
-            .run_if(has_resource::<R>)
-            .in_set(SaveSystem::Save)
+    #[deprecated(note = "use `into` instead")]
+    pub fn into_file_on_request<R: FilePath + Resource>(self) -> SystemConfigs {
+        self.into(file_from_resource::<R>())
     }
 
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from an event of type `R`.
@@ -488,18 +480,9 @@ where
     ///
     /// # Warning
     /// If multiple events are sent in a single update cycle, only the first one is processed.
-    pub fn into_file_on_event<R: FilePath + Event>(self) -> SavePipeline {
-        let Self { input, .. } = self;
-        (move || input.clone())
-            .pipe(filter_entities::<F>)
-            .pipe(map_scene)
-            .pipe(save_scene)
-            .pipe(file_from_event::<R>)
-            .pipe(into_file_dyn)
-            .pipe(undo_map_scene)
-            .pipe(finish)
-            .run_if(has_event::<R>)
-            .in_set(SaveSystem::Save)
+    #[deprecated(note = "use `into` instead")]
+    pub fn into_file_on_event<R: FilePath + Event>(self) -> SystemConfigs {
+        self.into(file_from_event::<R>())
     }
 }
 
@@ -515,35 +498,28 @@ impl<F: QueryFilter, S: System<In = (), Out = SaveInput>> DynamicSavePipelineBui
 where
     F: 'static,
 {
-    /// Finishes the save pipeline by writing the saved data into a file at given `path`.
-    pub fn into_file(self, path: impl Into<PathBuf>) -> SavePipeline {
+    pub fn into(self, p: impl SavePipeline) -> SystemConfigs {
         let Self { input_source, .. } = self;
-        input_source
+        let system = input_source
             .pipe(filter_entities::<F>)
             .pipe(map_scene)
-            .pipe(save_scene)
-            .pipe(into_file(path.into()))
-            .pipe(undo_map_scene)
-            .pipe(finish)
-            .in_set(SaveSystem::Save)
+            .pipe(save_scene);
+        let system = p.save(system).pipe(undo_map_scene).pipe(insert_saved);
+        p.finish(system).in_set(SaveSystem::Save)
+    }
+
+    /// Finishes the save pipeline by writing the saved data into a file at given `path`.
+    #[deprecated(note = "use `into` instead")]
+    pub fn into_file(self, path: impl Into<PathBuf>) -> SystemConfigs {
+        self.into(file_from_path(path))
     }
 
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
     ///
     /// The save pipeline will only be triggered if a resource of type `R` is present.
-    pub fn into_file_on_request<R: FilePath + Resource>(self) -> SavePipeline {
-        let Self { input_source, .. } = self;
-        input_source
-            .pipe(filter_entities::<F>)
-            .pipe(map_scene)
-            .pipe(save_scene)
-            .pipe(file_from_request::<R>)
-            .pipe(into_file_dyn)
-            .pipe(undo_map_scene)
-            .pipe(finish)
-            .pipe(remove_resource::<R>)
-            .run_if(has_resource::<R>)
-            .in_set(SaveSystem::Save)
+    #[deprecated(note = "use `into` instead")]
+    pub fn into_file_on_request<R: FilePath + Resource>(self) -> SystemConfigs {
+        self.into(file_from_resource::<R>())
     }
 
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from an event of type `R`.
@@ -552,18 +528,9 @@ where
     ///
     /// # Warning
     /// If multiple events are sent in a single update cycle, only the first one is processed.
-    pub fn into_file_on_event<R: FilePath + Event>(self) -> SavePipeline {
-        let Self { input_source, .. } = self;
-        input_source
-            .pipe(filter_entities::<F>)
-            .pipe(map_scene)
-            .pipe(save_scene)
-            .pipe(file_from_event::<R>)
-            .pipe(into_file_dyn)
-            .pipe(undo_map_scene)
-            .pipe(finish)
-            .run_if(has_event::<R>)
-            .in_set(SaveSystem::Save)
+    #[deprecated(note = "use `into` instead")]
+    pub fn into_file_on_event<R: FilePath + Event>(self) -> SystemConfigs {
+        self.into(file_from_event::<R>())
     }
 }
 
@@ -649,6 +616,40 @@ pub fn save_all_with<S: IntoSystem<(), SaveInput, M>, M>(
     }
 }
 
+pub trait SavePipeline: Pipeline {
+    fn save(
+        &self,
+        system: impl System<In = (), Out = Saved>,
+    ) -> impl System<In = (), Out = Result<Saved, SaveError>>;
+}
+
+impl SavePipeline for FileFromPath {
+    fn save(
+        &self,
+        system: impl System<In = (), Out = Saved>,
+    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
+        system.pipe(write_to_static_file(self.0.clone()))
+    }
+}
+
+impl<R: FilePath + Resource> SavePipeline for FileFromResource<R> {
+    fn save(
+        &self,
+        system: impl System<In = (), Out = Saved>,
+    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
+        system.pipe(get_file_from_resource::<R>).pipe(write_to_file)
+    }
+}
+
+impl<E: FilePath + Event> SavePipeline for FileFromEvent<E> {
+    fn save(
+        &self,
+        system: impl System<In = (), Out = Saved>,
+    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
+        system.pipe(get_file_from_event::<E>).pipe(write_to_file)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::*;
@@ -672,7 +673,7 @@ mod tests {
     fn test_save_into_file() {
         pub const PATH: &str = "test_save.ron";
         let mut app = app();
-        app.add_systems(PreUpdate, save_default().into_file(PATH));
+        app.add_systems(PreUpdate, save_default().into(file_from_path(PATH)));
 
         app.world_mut().spawn((Dummy, Save));
         app.update();
@@ -700,7 +701,7 @@ mod tests {
         let mut app = app();
         app.add_systems(
             PreUpdate,
-            save_default().into_file_on_request::<SaveRequest>(),
+            save_default().into(file_from_resource::<SaveRequest>()),
         );
 
         app.world_mut().insert_resource(SaveRequest);
@@ -729,7 +730,7 @@ mod tests {
         let mut app = app();
         app.add_event::<SaveRequest>().add_systems(
             PreUpdate,
-            save_default().into_file_on_event::<SaveRequest>(),
+            save_default().into(file_from_event::<SaveRequest>()),
         );
 
         app.world_mut().send_event(SaveRequest);
@@ -755,7 +756,9 @@ mod tests {
             .insert_resource(Dummy)
             .add_systems(
                 Update,
-                save_default().include_resource::<Dummy>().into_file(PATH),
+                save_default()
+                    .include_resource::<Dummy>()
+                    .into(file_from_path(PATH)),
             );
 
         app.update();
@@ -777,7 +780,9 @@ mod tests {
         let mut app = app();
         app.add_systems(
             PreUpdate,
-            save_default().exclude_component::<Foo>().into_file(PATH),
+            save_default()
+                .exclude_component::<Foo>()
+                .into(file_from_path(PATH)),
         );
 
         app.world_mut().spawn((Dummy, Foo, Save));
@@ -806,7 +811,10 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_systems(PreUpdate, save_default_with(deny_foo).into_file(PATH));
+        app.add_systems(
+            PreUpdate,
+            save_default_with(deny_foo).into(file_from_path(PATH)),
+        );
 
         app.world_mut().spawn((Dummy, Foo, Save));
         app.update();
@@ -834,7 +842,7 @@ mod tests {
             PreUpdate,
             save_default()
                 .map_component::<Foo>(|Foo(i): &Foo| Bar(*i))
-                .into_file(PATH),
+                .into(file_from_path(PATH)),
         );
 
         let entity = app.world_mut().spawn((Foo(12), Save)).id();

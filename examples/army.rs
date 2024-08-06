@@ -43,7 +43,7 @@ fn main() {
     // Add save/load pipelines:
     .add_systems(
         PreUpdate,
-        save_default().into_file_on_request::<SaveRequest>(),
+        save_default().into(file_from_resource::<SaveRequest>()),
     )
     .add_systems(PreUpdate, load(file_from_resource::<LoadRequest>()))
     .run();
