@@ -436,8 +436,8 @@ pub fn insert_into_loaded(
                 if let Some(mut entity) = world.get_entity_mut(*entity) {
                     entity.insert(bundle.clone());
                 } else {
-                    warn!(
-                        "loaded entity {saved_entity} was not saved (raw bits = {})",
+                    error!(
+                        "entity {saved_entity} is referenced in saved data but was never saved (raw bits = {})",
                         saved_entity.to_bits()
                     );
                 }
