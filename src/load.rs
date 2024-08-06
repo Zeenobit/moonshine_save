@@ -44,14 +44,10 @@ use bevy_utils::tracing::{error, info, warn};
 use moonshine_util::system::*;
 use serde::de::DeserializeSeed;
 
-use crate::save::MapComponent;
 use crate::{
-    file_from_event, file_from_path, file_from_resource, FileFromEvent, FileFromPath,
-    FileFromResource, Pipeline,
-};
-use crate::{
-    save::{Save, SaveSystem, Saved, SceneMapper},
-    FilePath,
+    file_from_event, file_from_path, file_from_resource,
+    save::{Save, SaveSystem, Saved},
+    FileFromEvent, FileFromPath, FileFromResource, FilePath, MapComponent, Pipeline, SceneMapper,
 };
 
 /// A [`Plugin`] which configures [`LoadSystem`] in [`PreUpdate`] schedule.

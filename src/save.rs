@@ -38,7 +38,7 @@ use bevy_utils::{
 };
 use moonshine_util::system::*;
 
-use crate::FilePath;
+use crate::{FilePath, MapComponent, SceneMapper};
 
 /// A [`Plugin`] which configures [`SaveSystem`] in [`PreUpdate`] schedule.
 pub struct SavePlugin;
@@ -646,104 +646,6 @@ pub fn save_all_with<S: IntoSystem<(), SaveInput, M>, M>(
     DynamicSavePipelineBuilder {
         query: PhantomData,
         input_source: IntoSystem::into_system(input_source),
-    }
-}
-
-pub trait MapComponent<T: Component>: 'static + Clone + Send + Sync {
-    type Output: Component;
-
-    fn map_component(&self, component: &T) -> Self::Output;
-}
-
-impl<F: Fn(&T) -> U, T: Component, U: Component> MapComponent<T> for F
-where
-    F: 'static + Clone + Send + Sync,
-{
-    type Output = U;
-
-    fn map_component(&self, component: &T) -> Self::Output {
-        self(component)
-    }
-}
-
-trait ComponentMapper: 'static + Send + Sync {
-    fn apply(&mut self, entity: &mut EntityWorldMut);
-
-    fn replace(&mut self, entity: &mut EntityWorldMut);
-
-    fn undo(&mut self, entity: &mut EntityWorldMut);
-
-    fn clone_dyn(&self) -> Box<dyn ComponentMapper>;
-}
-
-struct ComponentMapperImpl<T: Component, M: MapComponent<T>>(M, PhantomData<T>);
-
-impl<T: Component, M: MapComponent<T>> ComponentMapperImpl<T, M> {
-    fn new(m: M) -> Self {
-        Self(m, PhantomData)
-    }
-}
-
-impl<T: Component, M: MapComponent<T>> ComponentMapper for ComponentMapperImpl<T, M> {
-    fn apply(&mut self, entity: &mut EntityWorldMut) {
-        if let Some(component) = entity.get::<T>() {
-            entity.insert(self.0.map_component(component));
-        }
-    }
-
-    fn replace(&mut self, entity: &mut EntityWorldMut) {
-        if let Some(component) = entity.take::<T>() {
-            entity.insert(self.0.map_component(&component));
-        }
-    }
-
-    fn undo(&mut self, entity: &mut EntityWorldMut) {
-        entity.remove::<M::Output>();
-    }
-
-    fn clone_dyn(&self) -> Box<dyn ComponentMapper> {
-        Box::new(Self::new(self.0.clone()))
-    }
-}
-
-type ComponentMapperDyn = Box<dyn ComponentMapper>;
-
-#[derive(Default)]
-pub struct SceneMapper(Vec<ComponentMapperDyn>);
-
-impl SceneMapper {
-    pub fn map<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
-        self.0.push(Box::new(ComponentMapperImpl::new(m)));
-        self
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub(crate) fn apply(&mut self, mut entity: EntityWorldMut) {
-        for mapper in &mut self.0 {
-            mapper.apply(&mut entity);
-        }
-    }
-
-    pub(crate) fn replace(&mut self, mut entity: EntityWorldMut) {
-        for mapper in &mut self.0 {
-            mapper.replace(&mut entity);
-        }
-    }
-
-    pub(crate) fn undo(&mut self, mut entity: EntityWorldMut) {
-        for mapper in &mut self.0 {
-            mapper.undo(&mut entity);
-        }
-    }
-}
-
-// TODO: Can we avoid this clone?
-impl Clone for SceneMapper {
-    fn clone(&self) -> Self {
-        Self(self.0.iter().map(|mapper| mapper.clone_dyn()).collect())
     }
 }
 
