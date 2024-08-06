@@ -163,9 +163,6 @@ impl From<SceneSpawnError> for LoadError {
     }
 }
 
-/// A collection of systems ([`SystemConfigs`]) which perform the load process.
-pub type LoadPipeline = SystemConfigs;
-
 /// Default [`LoadPipeline`].
 ///
 /// # Usage
@@ -189,15 +186,15 @@ pub type LoadPipeline = SystemConfigs;
 /// }
 /// ```
 #[deprecated]
-pub fn load_from_file(path: impl Into<PathBuf>) -> LoadPipeline {
+pub fn load_from_file(path: impl Into<PathBuf>) -> SystemConfigs {
     load(file_from_path(path))
 }
 
 #[deprecated]
-pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper) -> LoadPipeline {
+pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper) -> SystemConfigs {
     load(LoadPipelineBuilder {
+        pipeline: file_from_path(path),
         mapper,
-        ..file_from_path(path)
     })
 }
 
@@ -225,7 +222,7 @@ pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper)
 ///     .add_systems(Update, load_from_file_on_request::<LoadRequest>());
 /// ```
 #[deprecated]
-pub fn load_from_file_on_request<R>() -> LoadPipeline
+pub fn load_from_file_on_request<R>() -> SystemConfigs
 where
     R: FilePath + Resource,
 {
@@ -233,13 +230,13 @@ where
 }
 
 #[deprecated]
-pub fn load_from_file_on_request_with_mapper<R>(mapper: SceneMapper) -> LoadPipeline
+pub fn load_from_file_on_request_with_mapper<R>(mapper: SceneMapper) -> SystemConfigs
 where
     R: FilePath + Resource,
 {
     load(LoadPipelineBuilder {
+        pipeline: file_from_resource::<R>(),
         mapper,
-        ..file_from_resource::<R>()
     })
 }
 
@@ -247,7 +244,7 @@ where
 ///
 /// Note: If multiple events are sent in a single update cycle, only the first one is processed.
 #[deprecated]
-pub fn load_from_file_on_event<R>() -> LoadPipeline
+pub fn load_from_file_on_event<R>() -> SystemConfigs
 where
     R: FilePath + Event,
 {
@@ -256,49 +253,43 @@ where
 
 // TODO: LoadPipelineBuilder
 #[deprecated]
-pub fn load_from_file_on_event_with_mapper<R>(mapper: SceneMapper) -> LoadPipeline
+pub fn load_from_file_on_event_with_mapper<R>(mapper: SceneMapper) -> SystemConfigs
 where
     R: FilePath + Event,
 {
-    load(LoadPipelineBuilder {
+    load(LoadPipelineBuilder::<FileFromEvent<R>> {
+        pipeline: file_from_event::<R>(),
         mapper,
-        ..file_from_event::<R>()
     })
 }
 
-pub trait LoadPipelineTrigger: 'static + Send + Sync {
-    fn head(&self) -> impl System<In = (), Out = Result<Saved, LoadError>>;
+pub trait LoadPipeline: 'static + Send + Sync {
+    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>>;
 
-    fn tail(&self, pipeline: impl System<In = (), Out = ()>) -> LoadPipeline {
-        pipeline.into_configs()
+    fn finish(&self, system: impl System<In = (), Out = ()>) -> SystemConfigs {
+        system.into_configs()
     }
 }
 
-pub struct StaticFile(PathBuf);
+pub struct FileFromPath(PathBuf);
 
-impl LoadPipelineTrigger for StaticFile {
-    fn head(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
+impl LoadPipeline for FileFromPath {
+    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
         IntoSystem::into_system(load_static_file(self.0.clone(), Default::default()))
     }
 }
 
 pub struct FileFromResource<R>(PhantomData<R>);
 
-impl<R> Default for FileFromResource<R> {
-    fn default() -> Self {
-        Self(PhantomData)
-    }
-}
-
-impl<R> LoadPipelineTrigger for FileFromResource<R>
+impl<R> LoadPipeline for FileFromResource<R>
 where
     R: FilePath + Resource,
 {
-    fn head(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
+    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
         get_file_from_resource::<R>.pipe(load_file)
     }
 
-    fn tail(&self, pipeline: impl System<In = (), Out = ()>) -> LoadPipeline {
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
         pipeline
             .pipe(remove_resource::<R>)
             .run_if(has_resource::<R>)
@@ -307,80 +298,92 @@ where
 
 pub struct FileFromEvent<E>(PhantomData<E>);
 
-impl<E> Default for FileFromEvent<E> {
-    fn default() -> Self {
-        Self(PhantomData)
-    }
-}
-
-impl<E> LoadPipelineTrigger for FileFromEvent<E>
+impl<E> LoadPipeline for FileFromEvent<E>
 where
     E: FilePath + Event,
 {
-    fn head(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
+    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
         get_file_from_event::<E>.pipe(load_file)
     }
 
-    fn tail(&self, pipeline: impl System<In = (), Out = ()>) -> LoadPipeline {
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
         pipeline.into_configs()
     }
 }
 
-pub fn file_from_path(path: impl Into<PathBuf>) -> LoadPipelineBuilder<StaticFile> {
-    LoadPipelineBuilder {
-        trigger: StaticFile(path.into()),
-        mapper: Default::default(),
-    }
+pub fn file_from_path(path: impl Into<PathBuf>) -> FileFromPath {
+    FileFromPath(path.into())
 }
 
-pub fn file_from_resource<R>() -> LoadPipelineBuilder<FileFromResource<R>>
+pub fn file_from_resource<R>() -> FileFromResource<R>
 where
     R: FilePath + Resource,
 {
-    LoadPipelineBuilder {
-        trigger: FileFromResource(PhantomData),
-        mapper: Default::default(),
-    }
+    FileFromResource(PhantomData)
 }
 
-pub fn file_from_event<E>() -> LoadPipelineBuilder<FileFromEvent<E>>
+pub fn file_from_event<E>() -> FileFromEvent<E>
 where
     E: FilePath + Event,
 {
-    LoadPipelineBuilder {
-        trigger: FileFromEvent(PhantomData),
-        mapper: Default::default(),
-    }
+    FileFromEvent(PhantomData)
 }
 
-pub fn load<T: LoadPipelineTrigger>(
-    LoadPipelineBuilder { trigger, mapper }: LoadPipelineBuilder<T>,
-) -> LoadPipeline {
-    let pipeline = trigger
-        .head()
-        .pipe(move |In(saved): In<Result<Saved, LoadError>>| {
-            saved.map(|saved| Saved {
-                mapper: mapper.clone(),
-                ..saved
-            })
-        })
+pub fn load(p: impl LoadPipeline) -> SystemConfigs {
+    let system = p
+        .load()
         .pipe(unload::<DefaultUnloadFilter>)
         .pipe(write_to_world)
         .pipe(insert_into_loaded(Save))
-        .pipe(finish);
-
-    trigger.tail(pipeline).in_set(LoadSystem::Load)
+        .pipe(insert_loaded);
+    p.finish(system).in_set(LoadSystem::Load)
 }
 
-pub struct LoadPipelineBuilder<T> {
-    trigger: T,
+pub trait LoadMapComponent: Sized {
+    fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self>;
+}
+
+impl<P> LoadMapComponent for P {
+    fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self> {
+        LoadPipelineBuilder {
+            pipeline: self,
+            mapper: SceneMapper::default().map(m),
+        }
+    }
+}
+
+pub struct LoadPipelineBuilder<P> {
+    pipeline: P,
     mapper: SceneMapper,
 }
 
-impl<T: LoadPipelineTrigger> LoadPipelineBuilder<T> {
-    pub fn map_component<U: Component>(mut self, m: impl MapComponent<U>) -> Self {
-        self.mapper = self.mapper.map(m);
-        self
+impl<P> LoadPipelineBuilder<P> {
+    pub fn map_component<U: Component>(self, m: impl MapComponent<U>) -> Self {
+        Self {
+            mapper: self.mapper.map(m),
+            ..self
+        }
+    }
+}
+
+impl<P> LoadPipeline for LoadPipelineBuilder<P>
+where
+    P: LoadPipeline,
+{
+    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
+        let mapper = self.mapper.clone();
+        self.pipeline
+            .load()
+            .pipe(move |In(saved): In<Result<Saved, LoadError>>| {
+                saved.map(|saved| Saved {
+                    mapper: mapper.clone(),
+                    ..saved
+                })
+            })
+    }
+
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
+        self.pipeline.finish(pipeline)
     }
 }
 
@@ -489,7 +492,7 @@ pub fn insert_into_loaded(
 /// # Usage
 ///
 /// All load pipelines should end with this system.
-pub fn finish(In(result): In<Result<Loaded, LoadError>>, world: &mut World) {
+pub fn insert_loaded(In(result): In<Result<Loaded, LoadError>>, world: &mut World) {
     match result {
         Ok(loaded) => world.insert_resource(loaded),
         Err(why) => error!("load failed: {why:?}"),
