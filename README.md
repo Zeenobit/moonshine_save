@@ -427,7 +427,7 @@ app.check::<B, ()>(repair(|entity: EntityRef, commands: &mut Commands| {
 > For now, it is recommended to keep older versions of upgraded components with the same old name in your application executable.
 > While this creates some bloat, it keeps your application fully backwards compatible for all previous save versions.
 > 
-> This behavior may be improved to reduce in future with the help of "save file processors" which could potentially rename/modify serialized components before deserialization.
+> This behavior may be improved in future to reduce this bloat with the help of "save file processors" which could potentially rename/modify serialized components before deserialization.
 
 
 [`World`]:https://docs.rs/bevy/latest/bevy/ecs/world/struct.World.html
