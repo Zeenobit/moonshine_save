@@ -579,11 +579,11 @@ pub fn save_with<F: QueryFilter, S: IntoSystem<(), SaveInput, M>, M>(
 ///     .add_systems(PreUpdate, save_default_with(save_filter).into_file("example.ron"));
 /// ```
 pub fn save_default_with<S: IntoSystem<(), SaveInput, M>, M>(
-    input_source: S,
+    s: S,
 ) -> DynamicSavePipelineBuilder<With<Save>, S::System> {
     DynamicSavePipelineBuilder {
         query: PhantomData,
-        input_source: IntoSystem::into_system(input_source),
+        input_source: IntoSystem::into_system(s),
     }
 }
 
@@ -652,7 +652,7 @@ impl<E: FilePath + Event> SavePipeline for FileFromEvent<E> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::*;
+    use std::fs;
 
     use bevy::prelude::*;
 
@@ -671,23 +671,23 @@ mod tests {
 
     #[test]
     fn test_save_into_file() {
-        pub const PATH: &str = "test_save.ron";
+        pub const PATH: &str = "test_save_into_file.ron";
         let mut app = app();
         app.add_systems(PreUpdate, save_default().into(file_from_path(PATH)));
 
         app.world_mut().spawn((Dummy, Save));
         app.update();
 
-        let data = read_to_string(PATH).unwrap();
+        let data = fs::read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
         assert!(!app.world().contains_resource::<Saved>());
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 
     #[test]
-    fn test_save_into_file_on_request() {
-        pub const PATH: &str = "test_save_dyn.ron";
+    fn test_save_into_file_from_resource() {
+        pub const PATH: &str = "test_save_into_file_from_resource.ron";
 
         #[derive(Resource)]
         struct SaveRequest;
@@ -708,15 +708,15 @@ mod tests {
         app.world_mut().spawn((Dummy, Save));
         app.update();
 
-        let data = read_to_string(PATH).unwrap();
+        let data = fs::read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 
     #[test]
-    fn test_save_into_file_on_event() {
-        pub const PATH: &str = "test_save_event.ron";
+    fn test_save_into_file_from_event() {
+        pub const PATH: &str = "test_save_into_file_from_event.ron";
 
         #[derive(Event)]
         struct SaveRequest;
@@ -737,10 +737,10 @@ mod tests {
         app.world_mut().spawn((Dummy, Save));
         app.update();
 
-        let data = read_to_string(PATH).unwrap();
+        let data = fs::read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 
     #[test]
@@ -763,10 +763,10 @@ mod tests {
 
         app.update();
 
-        let data = read_to_string(PATH).unwrap();
+        let data = fs::read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 
     #[test]
@@ -788,16 +788,16 @@ mod tests {
         app.world_mut().spawn((Dummy, Foo, Save));
         app.update();
 
-        let data = read_to_string(PATH).unwrap();
+        let data = fs::read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
         assert!(!data.contains("Foo"));
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 
     #[test]
-    fn test_dynamic_save_without_component() {
-        pub const PATH: &str = "test_dynamic_save_without_component.ron";
+    fn test_save_without_component_dynamic() {
+        pub const PATH: &str = "test_save_without_component_dynamic.ron";
 
         #[derive(Component, Default, Reflect)]
         #[reflect(Component)]
@@ -819,16 +819,16 @@ mod tests {
         app.world_mut().spawn((Dummy, Foo, Save));
         app.update();
 
-        let data = read_to_string(PATH).unwrap();
+        let data = fs::read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
         assert!(!data.contains("Foo"));
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 
     #[test]
-    fn test_map_component() {
-        pub const PATH: &str = "test_map_component.ron";
+    fn test_save_map_component() {
+        pub const PATH: &str = "test_save_map_component.ron";
 
         #[derive(Component, Default)]
         struct Foo(#[allow(dead_code)] u32); // Not serializable
@@ -848,13 +848,13 @@ mod tests {
         let entity = app.world_mut().spawn((Foo(12), Save)).id();
         app.update();
 
-        let data = read_to_string(PATH).unwrap();
+        let data = fs::read_to_string(PATH).unwrap();
         assert!(data.contains("Bar"));
         assert!(data.contains("(12)"));
         assert!(!data.contains("Foo"));
         assert!(app.world().entity(entity).contains::<Foo>());
         assert!(!app.world().entity(entity).contains::<Bar>());
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 }

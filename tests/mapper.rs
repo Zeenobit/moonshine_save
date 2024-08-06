@@ -1,3 +1,5 @@
+use std::fs;
+
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
 
@@ -45,16 +47,15 @@ fn app() -> App {
     let mut app = App::new();
     app.register_type::<Bar>()
         .register_type::<SerializedFoo>()
-        .add_plugins(MinimalPlugins)
-        .add_plugins((SavePlugin, LoadPlugin));
+        .add_plugins(MinimalPlugins);
     app
 }
 
 #[test]
-fn it_works() {
+fn main() {
     {
         let mut app = app();
-        app.add_systems(
+        app.add_plugins(SavePlugin).add_systems(
             PreUpdate,
             save_default()
                 .map_component::<Foo>(|Foo(data): &Foo| SerializedFoo(data.secret()))
@@ -74,12 +75,12 @@ fn it_works() {
         assert!(!world.entity(entity).contains::<SerializedFoo>());
 
         // Ensure file was written to disk
-        assert!(std::fs::read(SAVE_PATH).is_ok());
+        assert!(fs::read(SAVE_PATH).is_ok());
     }
 
     {
         let mut app = app();
-        app.add_systems(
+        app.add_plugins(LoadPlugin).add_systems(
             PreUpdate,
             load(
                 file_from_path(SAVE_PATH)
@@ -100,6 +101,6 @@ fn it_works() {
         assert!(world.entity(entity).contains::<Save>());
         assert!(!world.entity(entity).contains::<SerializedFoo>());
 
-        std::fs::remove_file(SAVE_PATH).unwrap();
+        fs::remove_file(SAVE_PATH).unwrap();
     }
 }

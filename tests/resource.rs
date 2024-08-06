@@ -1,3 +1,5 @@
+use std::fs;
+
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
 
@@ -9,17 +11,15 @@ struct Foo;
 
 fn app() -> App {
     let mut app = App::new();
-    app.register_type::<Foo>()
-        .add_plugins(MinimalPlugins)
-        .add_plugins((SavePlugin, LoadPlugin));
+    app.register_type::<Foo>().add_plugins(MinimalPlugins);
     app
 }
 
 #[test]
-fn it_works() {
+fn main() {
     {
         let mut app = app();
-        app.add_systems(
+        app.add_plugins(SavePlugin).add_systems(
             PreUpdate,
             save_default()
                 .include_resource::<Foo>()
@@ -34,17 +34,18 @@ fn it_works() {
         assert!(app.world().contains_resource::<Foo>());
 
         // Ensure file was written to disk
-        assert!(std::fs::read(SAVE_PATH).is_ok());
+        assert!(fs::read(SAVE_PATH).is_ok());
     }
 
     {
         let mut app = app();
-        app.add_systems(PreUpdate, load(file_from_path(SAVE_PATH)));
+        app.add_plugins(LoadPlugin)
+            .add_systems(PreUpdate, load(file_from_path(SAVE_PATH)));
 
         app.update();
 
         assert!(app.world().contains_resource::<Foo>());
 
-        std::fs::remove_file(SAVE_PATH).unwrap();
+        fs::remove_file(SAVE_PATH).unwrap();
     }
 }

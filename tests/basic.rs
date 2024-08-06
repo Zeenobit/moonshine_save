@@ -1,3 +1,5 @@
+use std::fs;
+
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
 
@@ -45,16 +47,16 @@ fn app() -> App {
     app.register_type::<Foo>()
         .register_type::<FooBar>()
         .register_type::<Bar>()
-        .add_plugins(MinimalPlugins)
-        .add_plugins((SavePlugin, LoadPlugin));
+        .add_plugins(MinimalPlugins);
     app
 }
 
 #[test]
-fn it_works() {
+fn main() {
     {
         let mut app = app();
-        app.add_systems(PreUpdate, save_default().into(file_from_path(SAVE_PATH)));
+        app.add_plugins(SavePlugin)
+            .add_systems(PreUpdate, save_default().into(file_from_path(SAVE_PATH)));
 
         // Spawn some entities
         let bar = app.world_mut().spawn(BarBundle::default()).id();
@@ -73,12 +75,13 @@ fn it_works() {
         assert!(world.entity(bar).contains::<Save>());
 
         // Ensure file was written to disk
-        assert!(std::fs::read(SAVE_PATH).is_ok());
+        assert!(fs::read(SAVE_PATH).is_ok());
     }
 
     {
         let mut app = app();
-        app.add_systems(PreUpdate, load(file_from_path(SAVE_PATH)));
+        app.add_plugins(LoadPlugin)
+            .add_systems(PreUpdate, load(file_from_path(SAVE_PATH)));
 
         // Spawn an entity to offset indices
         app.world_mut().spawn_empty();
@@ -92,6 +95,6 @@ fn it_works() {
         assert_eq!(world.query::<&FooBar>().single(world).0, bar);
         assert!(world.entity(bar).contains::<Save>());
 
-        std::fs::remove_file(SAVE_PATH).unwrap();
+        fs::remove_file(SAVE_PATH).unwrap();
     }
 }

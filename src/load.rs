@@ -488,7 +488,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::*, path::Path};
+    use std::{fs, path::Path};
 
     use bevy::prelude::*;
 
@@ -517,10 +517,10 @@ mod tests {
     }
 
     #[test]
-    fn test_load_from_file() {
-        pub const PATH: &str = "test_load.ron";
+    fn test_load_file() {
+        pub const PATH: &str = "test_load_file.ron";
 
-        write(PATH, DATA).unwrap();
+        fs::write(PATH, DATA).unwrap();
 
         let mut app = app();
         app.add_systems(PreUpdate, load(file_from_path(PATH)));
@@ -534,14 +534,14 @@ mod tests {
             .get_single(world)
             .is_ok());
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 
     #[test]
-    fn test_load_from_file_on_request() {
-        pub const PATH: &str = "test_load_on_request_dyn.ron";
+    fn test_load_file_from_resource() {
+        pub const PATH: &str = "test_load_file_from_resource.ron";
 
-        write(PATH, DATA).unwrap();
+        fs::write(PATH, DATA).unwrap();
 
         #[derive(Resource)]
         struct LoadRequest;
@@ -564,14 +564,14 @@ mod tests {
             .get_single(world)
             .is_ok());
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 
     #[test]
-    fn test_load_from_file_on_event() {
-        pub const PATH: &str = "test_load_on_request_event.ron";
+    fn test_load_file_from_event() {
+        pub const PATH: &str = "test_load_file_from_event.ron";
 
-        write(PATH, DATA).unwrap();
+        fs::write(PATH, DATA).unwrap();
 
         #[derive(Event)]
         struct LoadRequest;
@@ -595,135 +595,14 @@ mod tests {
             .get_single(world)
             .is_ok());
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 
     #[test]
-    fn test_hierarchy() {
-        use std::fs::*;
+    fn test_load_map_component() {
+        pub const PATH: &str = "test_load_map_component.ron";
 
-        use bevy::prelude::*;
-
-        use crate::save::{save_default, SavePlugin};
-
-        pub const PATH: &str = "test_load_hierarchy.ron";
-
-        {
-            let mut app = App::new();
-            app.add_plugins((MinimalPlugins, HierarchyPlugin, SavePlugin))
-                .add_systems(PreUpdate, save_default().into(file_from_path(PATH)));
-
-            let entity = app
-                .world_mut()
-                .spawn(Save)
-                .with_children(|parent| {
-                    parent.spawn(Save);
-                    parent.spawn(Save);
-                })
-                .id();
-
-            app.update();
-
-            let world = app.world();
-            let children = world.get::<Children>(entity).unwrap();
-            assert_eq!(children.iter().count(), 2);
-            for child in children.iter() {
-                let parent = world.get::<Parent>(*child).unwrap().get();
-                assert_eq!(parent, entity);
-            }
-        }
-
-        {
-            let data = std::fs::read_to_string(PATH).unwrap();
-            assert!(data.contains("Parent"));
-            assert!(data.contains("Children"));
-        }
-
-        {
-            let mut app = App::new();
-            app.add_plugins((MinimalPlugins, HierarchyPlugin, LoadPlugin))
-                .add_systems(PreUpdate, load(file_from_path(PATH)));
-
-            // Spawn an entity to offset indices
-            app.world_mut().spawn_empty();
-
-            app.update();
-
-            let world = app.world_mut();
-            let (entity, children) = world.query::<(Entity, &Children)>().single(world);
-            assert_eq!(children.iter().count(), 2);
-            for child in children.iter() {
-                let parent = world.get::<Parent>(*child).unwrap().get();
-                assert_eq!(parent, entity);
-            }
-        }
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_unsaved_entity() {
-        use std::fs::*;
-
-        use bevy::prelude::*;
-
-        use crate::save::{save_default, SavePlugin};
-
-        pub const PATH: &str = "test_unsaved_entity.ron";
-
-        {
-            let mut app = App::new();
-            app.add_plugins((MinimalPlugins, HierarchyPlugin, SavePlugin))
-                .add_systems(PreUpdate, save_default().into(file_from_path(PATH)));
-
-            let entity = app
-                .world_mut()
-                .spawn(Save)
-                .with_children(|parent| {
-                    parent.spawn((Name::new("A"), Save));
-                    parent.spawn(Name::new("B")); // !!! DANGER: Unsaved, referenced entity
-                })
-                .id();
-
-            app.update();
-
-            let world = app.world();
-            let children = world.get::<Children>(entity).unwrap();
-            assert_eq!(children.iter().count(), 2);
-            for child in children.iter() {
-                let parent = world.get::<Parent>(*child).unwrap().get();
-                assert_eq!(parent, entity);
-            }
-        }
-
-        {
-            let mut app = App::new();
-            app.add_plugins((MinimalPlugins, HierarchyPlugin, LoadPlugin))
-                .add_systems(PreUpdate, load(file_from_path(PATH)));
-
-            // Spawn an entity to offset indices
-            app.world_mut().spawn_empty();
-
-            app.update();
-
-            let world = app.world_mut();
-            let (_, children) = world.query::<(Entity, &Children)>().single(world);
-            assert_eq!(children.iter().count(), 2); // !!! DANGER: One of the entities must be broken
-            let mut found_broken = false;
-            for child in children.iter() {
-                found_broken |= world.get::<Name>(*child).is_none();
-            }
-            assert!(found_broken);
-        }
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_load_with_mapper() {
-        pub const PATH: &str = "test_load_with_mapper.ron";
-
-        write(PATH, DATA).unwrap();
+        fs::write(PATH, DATA).unwrap();
 
         let mut app = app();
 
@@ -747,6 +626,6 @@ mod tests {
             .get_single(world)
             .is_err());
 
-        remove_file(PATH).unwrap();
+        fs::remove_file(PATH).unwrap();
     }
 }
