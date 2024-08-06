@@ -33,7 +33,6 @@
 //! ```
 
 use std::io;
-use std::marker::PhantomData;
 use std::path::PathBuf;
 
 use bevy_app::{App, Plugin, PreUpdate};
@@ -46,6 +45,10 @@ use moonshine_util::system::*;
 use serde::de::DeserializeSeed;
 
 use crate::save::MapComponent;
+use crate::{
+    file_from_event, file_from_path, file_from_resource, FileFromEvent, FileFromPath,
+    FileFromResource, Pipeline,
+};
 use crate::{
     save::{Save, SaveSystem, Saved, SceneMapper},
     FilePath,
@@ -263,15 +266,9 @@ where
     })
 }
 
-pub trait LoadPipeline: 'static + Send + Sync {
+pub trait LoadPipeline: Pipeline {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>>;
-
-    fn finish(&self, system: impl System<In = (), Out = ()>) -> SystemConfigs {
-        system.into_configs()
-    }
 }
-
-pub struct FileFromPath(PathBuf);
 
 impl LoadPipeline for FileFromPath {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
@@ -279,54 +276,22 @@ impl LoadPipeline for FileFromPath {
     }
 }
 
-pub struct FileFromResource<R>(PhantomData<R>);
-
 impl<R> LoadPipeline for FileFromResource<R>
 where
-    R: FilePath + Resource,
+    R: Resource + FilePath,
 {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
         get_file_from_resource::<R>.pipe(load_file)
     }
-
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
-        pipeline
-            .pipe(remove_resource::<R>)
-            .run_if(has_resource::<R>)
-    }
 }
-
-pub struct FileFromEvent<E>(PhantomData<E>);
 
 impl<E> LoadPipeline for FileFromEvent<E>
 where
-    E: FilePath + Event,
+    E: Event + FilePath,
 {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
         get_file_from_event::<E>.pipe(load_file)
     }
-
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
-        pipeline.into_configs()
-    }
-}
-
-pub fn file_from_path(path: impl Into<PathBuf>) -> FileFromPath {
-    FileFromPath(path.into())
-}
-
-pub fn file_from_resource<R>() -> FileFromResource<R>
-where
-    R: FilePath + Resource,
-{
-    FileFromResource(PhantomData)
-}
-
-pub fn file_from_event<E>() -> FileFromEvent<E>
-where
-    E: FilePath + Event,
-{
-    FileFromEvent(PhantomData)
 }
 
 pub fn load(p: impl LoadPipeline) -> SystemConfigs {
@@ -366,10 +331,13 @@ impl<P> LoadPipelineBuilder<P> {
     }
 }
 
-impl<P> LoadPipeline for LoadPipelineBuilder<P>
-where
-    P: LoadPipeline,
-{
+impl<P: Pipeline> Pipeline for LoadPipelineBuilder<P> {
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
+        self.pipeline.finish(pipeline)
+    }
+}
+
+impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
         let mapper = self.mapper.clone();
         self.pipeline
@@ -380,10 +348,6 @@ where
                     ..saved
                 })
             })
-    }
-
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
-        self.pipeline.finish(pipeline)
     }
 }
 

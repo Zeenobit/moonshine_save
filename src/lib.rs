@@ -1,6 +1,12 @@
 #![doc = include_str!("../README.md")]
 
-use std::path::Path;
+use std::{
+    marker::PhantomData,
+    path::{Path, PathBuf},
+};
+
+use bevy_ecs::{prelude::*, schedule::SystemConfigs};
+use moonshine_util::system::{has_resource, remove_resource};
 
 pub mod load;
 pub mod save;
@@ -8,8 +14,7 @@ pub mod save;
 /// Common elements for saving/loading world state.
 pub mod prelude {
     pub use crate::load::{
-        file_from_event, file_from_path, file_from_resource, load, LoadError, LoadMapComponent,
-        LoadPlugin, LoadSystem, Loaded, Unload,
+        load, LoadError, LoadMapComponent, LoadPlugin, LoadSystem, Loaded, Unload,
     };
 
     pub use crate::save::{
@@ -25,9 +30,51 @@ pub mod prelude {
         reflect::ReflectMapEntities,
     };
 
-    pub use crate::FilePath;
+    pub use crate::{file_from_event, file_from_path, file_from_resource, FilePath};
 }
 
 pub trait FilePath {
     fn path(&self) -> &Path;
 }
+
+pub trait Pipeline: 'static + Send + Sync {
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
+        pipeline.into_configs()
+    }
+}
+
+pub fn file_from_path(path: impl Into<PathBuf>) -> FileFromPath {
+    FileFromPath(path.into())
+}
+
+pub fn file_from_resource<R>() -> FileFromResource<R>
+where
+    R: Resource,
+{
+    FileFromResource(PhantomData::<R>)
+}
+
+pub fn file_from_event<E>() -> FileFromEvent<E>
+where
+    E: Event,
+{
+    FileFromEvent(PhantomData::<E>)
+}
+
+pub struct FileFromPath(PathBuf);
+
+impl Pipeline for FileFromPath {}
+
+pub struct FileFromResource<R>(PhantomData<R>);
+
+impl<R: Resource> Pipeline for FileFromResource<R> {
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
+        pipeline
+            .pipe(remove_resource::<R>)
+            .run_if(has_resource::<R>)
+    }
+}
+
+pub struct FileFromEvent<E>(PhantomData<E>);
+
+impl<E: Event> Pipeline for FileFromEvent<E> {}
