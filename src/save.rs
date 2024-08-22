@@ -24,9 +24,9 @@
 
 use std::{
     any::TypeId,
-    io,
+    io::{self, Write},
     marker::PhantomData,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use bevy_app::{App, Plugin, PreUpdate};
@@ -39,8 +39,9 @@ use bevy_utils::{
 use moonshine_util::system::*;
 
 use crate::{
-    file_from_event, file_from_path, file_from_resource, FileFromEvent, FileFromPath,
-    FileFromResource, FilePath, MapComponent, Pipeline, SceneMapper,
+    file_from_event, file_from_resource, static_file, FileFromEvent, FileFromResource, GetFilePath,
+    GetStaticStream, GetStream, MapComponent, Pipeline, SceneMapper, StaticFile, StaticStream,
+    StreamFromEvent, StreamFromResource,
 };
 
 /// A [`Plugin`] which configures [`SaveSystem`] in [`PreUpdate`] schedule.
@@ -252,6 +253,16 @@ pub fn write_to_file(
     Ok(saved)
 }
 
+pub fn write_to_stream<S: Write>(
+    In((mut stream, saved)): In<(S, Saved)>,
+    type_registry: Res<AppTypeRegistry>,
+) -> Result<Saved, SaveError> {
+    let data = saved.scene.serialize(&type_registry.read())?;
+    stream.write_all(data.as_bytes())?;
+    info!("saved into stream");
+    Ok(saved)
+}
+
 pub fn undo_map_scene(
     In(mut result): In<Result<Saved, SaveError>>,
     world: &mut World,
@@ -280,7 +291,7 @@ pub fn insert_saved(In(result): In<Result<Saved, SaveError>>, world: &mut World)
 /// A [`System`] which extracts the path from a [`SaveIntoFileRequest`] [`Resource`].
 pub fn get_file_from_resource<R>(In(saved): In<Saved>, request: Res<R>) -> (PathBuf, Saved)
 where
-    R: FilePath + Resource,
+    R: GetFilePath + Resource,
 {
     let path = request.path().to_owned();
     (path, saved)
@@ -293,9 +304,9 @@ where
 /// If multiple events are sent in a single update cycle, only the first one is processed.
 ///
 /// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
-pub fn get_file_from_event<R>(In(saved): In<Saved>, mut events: EventReader<R>) -> (PathBuf, Saved)
+pub fn get_file_from_event<E>(In(saved): In<Saved>, mut events: EventReader<E>) -> (PathBuf, Saved)
 where
-    R: FilePath + Event,
+    E: GetFilePath + Event,
 {
     let mut iter = events.read();
     let event = iter.next().unwrap();
@@ -306,11 +317,19 @@ where
     (path, saved)
 }
 
-/// Any type which may be used to trigger [`save_into_file_on_request`] or [`save_into_file_on_event`].
-#[deprecated(note = "use `FilePath` instead")]
-pub trait SaveIntoFileRequest {
-    /// Path of the file to save into.
-    fn path(&self) -> &Path;
+pub fn get_stream_from_event<E>(
+    In(saved): In<Saved>,
+    mut events: EventReader<E>,
+) -> (<E as GetStream>::Stream, Saved)
+where
+    E: GetStream + Event,
+{
+    let mut iter = events.read();
+    let event = iter.next().unwrap();
+    if iter.next().is_some() {
+        warn!("multiple save request events received; only the first one is processed.");
+    }
+    (event.stream(), saved)
 }
 
 /// A convenient builder for defining a [`SavePipeline`].
@@ -463,14 +482,14 @@ where
 
     #[deprecated(note = "use `into` instead")]
     pub fn into_file(self, path: impl Into<PathBuf>) -> SystemConfigs {
-        self.into(file_from_path(path))
+        self.into(static_file(path))
     }
 
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
     ///
     /// The save pipeline will only be triggered if a resource of type `R` is present.
     #[deprecated(note = "use `into` instead")]
-    pub fn into_file_on_request<R: FilePath + Resource>(self) -> SystemConfigs {
+    pub fn into_file_on_request<R: GetFilePath + Resource>(self) -> SystemConfigs {
         self.into(file_from_resource::<R>())
     }
 
@@ -481,7 +500,7 @@ where
     /// # Warning
     /// If multiple events are sent in a single update cycle, only the first one is processed.
     #[deprecated(note = "use `into` instead")]
-    pub fn into_file_on_event<R: FilePath + Event>(self) -> SystemConfigs {
+    pub fn into_file_on_event<R: GetFilePath + Event>(self) -> SystemConfigs {
         self.into(file_from_event::<R>())
     }
 }
@@ -511,14 +530,14 @@ where
     /// Finishes the save pipeline by writing the saved data into a file at given `path`.
     #[deprecated(note = "use `into` instead")]
     pub fn into_file(self, path: impl Into<PathBuf>) -> SystemConfigs {
-        self.into(file_from_path(path))
+        self.into(static_file(path))
     }
 
     /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
     ///
     /// The save pipeline will only be triggered if a resource of type `R` is present.
     #[deprecated(note = "use `into` instead")]
-    pub fn into_file_on_request<R: FilePath + Resource>(self) -> SystemConfigs {
+    pub fn into_file_on_request<R: GetFilePath + Resource>(self) -> SystemConfigs {
         self.into(file_from_resource::<R>())
     }
 
@@ -529,7 +548,7 @@ where
     /// # Warning
     /// If multiple events are sent in a single update cycle, only the first one is processed.
     #[deprecated(note = "use `into` instead")]
-    pub fn into_file_on_event<R: FilePath + Event>(self) -> SystemConfigs {
+    pub fn into_file_on_event<R: GetFilePath + Event>(self) -> SystemConfigs {
         self.into(file_from_event::<R>())
     }
 }
@@ -623,7 +642,7 @@ pub trait SavePipeline: Pipeline {
     ) -> impl System<In = (), Out = Result<Saved, SaveError>>;
 }
 
-impl SavePipeline for FileFromPath {
+impl SavePipeline for StaticFile {
     fn save(
         &self,
         system: impl System<In = (), Out = Saved>,
@@ -632,7 +651,21 @@ impl SavePipeline for FileFromPath {
     }
 }
 
-impl<R: FilePath + Resource> SavePipeline for FileFromResource<R> {
+impl<S: GetStaticStream> SavePipeline for StaticStream<S>
+where
+    S::Stream: Write,
+{
+    fn save(
+        &self,
+        system: impl System<In = (), Out = Saved>,
+    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
+        system
+            .pipe(move |In(saved): In<Saved>| (S::stream(), saved))
+            .pipe(write_to_stream)
+    }
+}
+
+impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
     fn save(
         &self,
         system: impl System<In = (), Out = Saved>,
@@ -641,7 +674,21 @@ impl<R: FilePath + Resource> SavePipeline for FileFromResource<R> {
     }
 }
 
-impl<E: FilePath + Event> SavePipeline for FileFromEvent<E> {
+impl<R: GetStream + Resource> SavePipeline for StreamFromResource<R>
+where
+    R::Stream: Write,
+{
+    fn save(
+        &self,
+        system: impl System<In = (), Out = Saved>,
+    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
+        system
+            .pipe(move |In(saved): In<Saved>, resource: Res<R>| (resource.stream(), saved))
+            .pipe(write_to_stream)
+    }
+}
+
+impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
     fn save(
         &self,
         system: impl System<In = (), Out = Saved>,
@@ -650,13 +697,28 @@ impl<E: FilePath + Event> SavePipeline for FileFromEvent<E> {
     }
 }
 
+impl<E: GetStream + Event> SavePipeline for StreamFromEvent<E>
+where
+    E::Stream: Write,
+{
+    fn save(
+        &self,
+        system: impl System<In = (), Out = Saved>,
+    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
+        system
+            .pipe(get_stream_from_event::<E>)
+            .pipe(write_to_stream)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs::*, path::Path};
 
     use bevy::prelude::*;
 
     use super::*;
+    use crate::*;
 
     #[derive(Component, Default, Reflect)]
     #[reflect(Component)]
@@ -673,16 +735,43 @@ mod tests {
     fn test_save_into_file() {
         pub const PATH: &str = "test_save_into_file.ron";
         let mut app = app();
-        app.add_systems(PreUpdate, save_default().into(file_from_path(PATH)));
+        app.add_systems(PreUpdate, save_default().into(static_file(PATH)));
 
         app.world_mut().spawn((Dummy, Save));
         app.update();
 
-        let data = fs::read_to_string(PATH).unwrap();
+        let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
         assert!(!app.world().contains_resource::<Saved>());
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_save_into_stream() {
+        pub const PATH: &str = "test_save_to_stream.ron";
+
+        struct SaveStream;
+
+        impl GetStaticStream for SaveStream {
+            type Stream = File;
+
+            fn stream() -> Self::Stream {
+                File::create(PATH).unwrap()
+            }
+        }
+
+        let mut app = app();
+        app.add_systems(PreUpdate, save_default().into(static_stream(SaveStream)));
+
+        app.world_mut().spawn((Dummy, Save));
+        app.update();
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Dummy"));
+        assert!(!app.world().contains_resource::<Saved>());
+
+        remove_file(PATH).unwrap();
     }
 
     #[test]
@@ -692,7 +781,7 @@ mod tests {
         #[derive(Resource)]
         struct SaveRequest;
 
-        impl FilePath for SaveRequest {
+        impl GetFilePath for SaveRequest {
             fn path(&self) -> &Path {
                 PATH.as_ref()
             }
@@ -708,10 +797,44 @@ mod tests {
         app.world_mut().spawn((Dummy, Save));
         app.update();
 
-        let data = fs::read_to_string(PATH).unwrap();
+        let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
+        assert!(!app.world().contains_resource::<SaveRequest>());
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_save_into_stream_from_resource() {
+        pub const PATH: &str = "test_save_into_stream_from_resource.ron";
+
+        #[derive(Resource)]
+        struct SaveRequest(&'static str);
+
+        impl GetStream for SaveRequest {
+            type Stream = File;
+
+            fn stream(&self) -> Self::Stream {
+                File::create(self.0).unwrap()
+            }
+        }
+
+        let mut app = app();
+        app.add_systems(
+            PreUpdate,
+            save_default().into(stream_from_resource::<SaveRequest>()),
+        );
+
+        app.world_mut().insert_resource(SaveRequest(PATH));
+        app.world_mut().spawn((Dummy, Save));
+        app.update();
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Dummy"));
+        assert!(!app.world().contains_resource::<Saved>());
+        assert!(!app.world().contains_resource::<SaveRequest>());
+
+        remove_file(PATH).unwrap();
     }
 
     #[test]
@@ -721,7 +844,7 @@ mod tests {
         #[derive(Event)]
         struct SaveRequest;
 
-        impl FilePath for SaveRequest {
+        impl GetFilePath for SaveRequest {
             fn path(&self) -> &Path {
                 PATH.as_ref()
             }
@@ -737,10 +860,41 @@ mod tests {
         app.world_mut().spawn((Dummy, Save));
         app.update();
 
-        let data = fs::read_to_string(PATH).unwrap();
+        let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_save_into_stream_from_event() {
+        pub const PATH: &str = "test_save_into_file_from_event.ron";
+
+        #[derive(Event)]
+        struct SaveRequest(&'static str);
+
+        impl GetStream for SaveRequest {
+            type Stream = File;
+
+            fn stream(&self) -> Self::Stream {
+                File::create(self.0).unwrap()
+            }
+        }
+
+        let mut app = app();
+        app.add_event::<SaveRequest>().add_systems(
+            PreUpdate,
+            save_default().into(stream_from_event::<SaveRequest>()),
+        );
+
+        app.world_mut().send_event(SaveRequest(PATH));
+        app.world_mut().spawn((Dummy, Save));
+        app.update();
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Dummy"));
+
+        remove_file(PATH).unwrap();
     }
 
     #[test]
@@ -758,15 +912,15 @@ mod tests {
                 Update,
                 save_default()
                     .include_resource::<Dummy>()
-                    .into(file_from_path(PATH)),
+                    .into(static_file(PATH)),
             );
 
         app.update();
 
-        let data = fs::read_to_string(PATH).unwrap();
+        let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
     }
 
     #[test]
@@ -782,17 +936,17 @@ mod tests {
             PreUpdate,
             save_default()
                 .exclude_component::<Foo>()
-                .into(file_from_path(PATH)),
+                .into(static_file(PATH)),
         );
 
         app.world_mut().spawn((Dummy, Foo, Save));
         app.update();
 
-        let data = fs::read_to_string(PATH).unwrap();
+        let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
         assert!(!data.contains("Foo"));
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
     }
 
     #[test]
@@ -813,17 +967,17 @@ mod tests {
         let mut app = app();
         app.add_systems(
             PreUpdate,
-            save_default_with(deny_foo).into(file_from_path(PATH)),
+            save_default_with(deny_foo).into(static_file(PATH)),
         );
 
         app.world_mut().spawn((Dummy, Foo, Save));
         app.update();
 
-        let data = fs::read_to_string(PATH).unwrap();
+        let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Dummy"));
         assert!(!data.contains("Foo"));
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
     }
 
     #[test]
@@ -842,19 +996,19 @@ mod tests {
             PreUpdate,
             save_default()
                 .map_component::<Foo>(|Foo(i): &Foo| Bar(*i))
-                .into(file_from_path(PATH)),
+                .into(static_file(PATH)),
         );
 
         let entity = app.world_mut().spawn((Foo(12), Save)).id();
         app.update();
 
-        let data = fs::read_to_string(PATH).unwrap();
+        let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Bar"));
         assert!(data.contains("(12)"));
         assert!(!data.contains("Foo"));
         assert!(app.world().entity(entity).contains::<Foo>());
         assert!(!app.world().entity(entity).contains::<Bar>());
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
     }
 }

@@ -30,11 +30,23 @@ pub mod prelude {
         reflect::ReflectMapEntities,
     };
 
-    pub use crate::{file_from_event, file_from_path, file_from_resource, FilePath};
+    pub use crate::{file_from_event, file_from_resource, static_file, GetFilePath};
 }
 
-pub trait FilePath {
+pub trait GetFilePath {
     fn path(&self) -> &Path;
+}
+
+pub trait GetStaticStream: 'static + Send + Sync {
+    type Stream: 'static + Send + Sync;
+
+    fn stream() -> Self::Stream;
+}
+
+pub trait GetStream: 'static + Send + Sync {
+    type Stream: 'static + Send + Sync;
+
+    fn stream(&self) -> Self::Stream;
 }
 
 pub trait Pipeline: 'static + Send + Sync {
@@ -43,8 +55,12 @@ pub trait Pipeline: 'static + Send + Sync {
     }
 }
 
-pub fn file_from_path(path: impl Into<PathBuf>) -> FileFromPath {
-    FileFromPath(path.into())
+pub fn static_file(path: impl Into<PathBuf>) -> StaticFile {
+    StaticFile(path.into())
+}
+
+pub fn static_stream<S>(stream: S) -> StaticStream<S> {
+    StaticStream(stream)
 }
 
 pub fn file_from_resource<R>() -> FileFromResource<R>
@@ -54,6 +70,13 @@ where
     FileFromResource(PhantomData::<R>)
 }
 
+pub fn stream_from_resource<R>() -> StreamFromResource<R>
+where
+    R: Resource,
+{
+    StreamFromResource(PhantomData::<R>)
+}
+
 pub fn file_from_event<E>() -> FileFromEvent<E>
 where
     E: Event,
@@ -61,9 +84,21 @@ where
     FileFromEvent(PhantomData::<E>)
 }
 
-pub struct FileFromPath(PathBuf);
+pub fn stream_from_event<E>() -> StreamFromEvent<E>
+where
+    E: Event,
+{
+    StreamFromEvent(PhantomData::<E>)
+}
 
-impl Pipeline for FileFromPath {}
+pub struct StaticFile(PathBuf);
+
+impl Pipeline for StaticFile {}
+
+#[derive(Clone)]
+pub struct StaticStream<S>(S);
+
+impl<S: 'static + Send + Sync> Pipeline for StaticStream<S> {}
 
 pub struct FileFromResource<R>(PhantomData<R>);
 
@@ -75,9 +110,23 @@ impl<R: Resource> Pipeline for FileFromResource<R> {
     }
 }
 
+pub struct StreamFromResource<R>(PhantomData<R>);
+
+impl<R: Resource> Pipeline for StreamFromResource<R> {
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
+        pipeline
+            .pipe(remove_resource::<R>)
+            .run_if(has_resource::<R>)
+    }
+}
+
 pub struct FileFromEvent<E>(PhantomData<E>);
 
 impl<E: Event> Pipeline for FileFromEvent<E> {}
+
+pub struct StreamFromEvent<E>(PhantomData<E>);
+
+impl<E: Event> Pipeline for StreamFromEvent<E> {}
 
 pub trait MapComponent<T: Component>: 'static + Clone + Send + Sync {
     type Output: Component;

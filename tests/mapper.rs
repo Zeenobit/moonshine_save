@@ -59,7 +59,7 @@ fn main() {
             PreUpdate,
             save_default()
                 .map_component::<Foo>(|Foo(data): &Foo| SerializedFoo(data.secret()))
-                .into(file_from_path(SAVE_PATH)),
+                .into(static_file(SAVE_PATH)),
         );
 
         // Spawn some entities
@@ -83,7 +83,7 @@ fn main() {
         app.add_plugins(LoadPlugin).add_systems(
             PreUpdate,
             load(
-                file_from_path(SAVE_PATH)
+                static_file(SAVE_PATH)
                     .map_component(|&SerializedFoo(data): &SerializedFoo| Foo(Box::new(data))),
             ),
         );

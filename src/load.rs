@@ -45,9 +45,10 @@ use moonshine_util::system::*;
 use serde::de::DeserializeSeed;
 
 use crate::{
-    file_from_event, file_from_path, file_from_resource,
+    file_from_event, file_from_resource,
     save::{Save, SaveSystem, Saved},
-    FileFromEvent, FileFromPath, FileFromResource, FilePath, MapComponent, Pipeline, SceneMapper,
+    static_file, FileFromEvent, FileFromResource, GetFilePath, MapComponent, Pipeline, SceneMapper,
+    StaticFile,
 };
 
 /// A [`Plugin`] which configures [`LoadSystem`] in [`PreUpdate`] schedule.
@@ -186,13 +187,13 @@ impl From<SceneSpawnError> for LoadError {
 /// ```
 #[deprecated]
 pub fn load_from_file(path: impl Into<PathBuf>) -> SystemConfigs {
-    load(file_from_path(path))
+    load(static_file(path))
 }
 
 #[deprecated]
 pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper) -> SystemConfigs {
     load(LoadPipelineBuilder {
-        pipeline: file_from_path(path),
+        pipeline: static_file(path),
         mapper,
     })
 }
@@ -223,7 +224,7 @@ pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper)
 #[deprecated]
 pub fn load_from_file_on_request<R>() -> SystemConfigs
 where
-    R: FilePath + Resource,
+    R: GetFilePath + Resource,
 {
     load(file_from_resource::<R>())
 }
@@ -231,7 +232,7 @@ where
 #[deprecated]
 pub fn load_from_file_on_request_with_mapper<R>(mapper: SceneMapper) -> SystemConfigs
 where
-    R: FilePath + Resource,
+    R: GetFilePath + Resource,
 {
     load(LoadPipelineBuilder {
         pipeline: file_from_resource::<R>(),
@@ -245,7 +246,7 @@ where
 #[deprecated]
 pub fn load_from_file_on_event<R>() -> SystemConfigs
 where
-    R: FilePath + Event,
+    R: GetFilePath + Event,
 {
     load(file_from_event::<R>())
 }
@@ -254,7 +255,7 @@ where
 #[deprecated]
 pub fn load_from_file_on_event_with_mapper<R>(mapper: SceneMapper) -> SystemConfigs
 where
-    R: FilePath + Event,
+    R: GetFilePath + Event,
 {
     load(LoadPipelineBuilder::<FileFromEvent<R>> {
         pipeline: file_from_event::<R>(),
@@ -266,7 +267,7 @@ pub trait LoadPipeline: Pipeline {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>>;
 }
 
-impl LoadPipeline for FileFromPath {
+impl LoadPipeline for StaticFile {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
         IntoSystem::into_system(load_static_file(self.0.clone(), Default::default()))
     }
@@ -274,7 +275,7 @@ impl LoadPipeline for FileFromPath {
 
 impl<R> LoadPipeline for FileFromResource<R>
 where
-    R: Resource + FilePath,
+    R: Resource + GetFilePath,
 {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
         get_file_from_resource::<R>.pipe(load_file)
@@ -283,7 +284,7 @@ where
 
 impl<E> LoadPipeline for FileFromEvent<E>
 where
-    E: Event + FilePath,
+    E: Event + GetFilePath,
 {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
         get_file_from_event::<E>.pipe(load_file)
@@ -304,7 +305,7 @@ pub trait LoadMapComponent: Sized {
     fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self>;
 }
 
-impl<P> LoadMapComponent for P {
+impl<P: Pipeline> LoadMapComponent for P {
     fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self> {
         LoadPipelineBuilder {
             pipeline: self,
@@ -462,7 +463,7 @@ pub fn insert_loaded(In(result): In<Result<Loaded, LoadError>>, world: &mut Worl
 /// A [`System`] which extracts the path from a [`LoadFromFileRequest`] [`Resource`].
 pub fn get_file_from_resource<R>(request: Res<R>) -> PathBuf
 where
-    R: FilePath + Resource,
+    R: GetFilePath + Resource,
 {
     request.path().to_owned()
 }
@@ -476,7 +477,7 @@ where
 /// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
 pub fn get_file_from_event<R>(mut events: EventReader<R>) -> PathBuf
 where
-    R: FilePath + Event,
+    R: GetFilePath + Event,
 {
     let mut iter = events.read();
     let event = iter.next().unwrap();
@@ -523,7 +524,7 @@ mod tests {
         fs::write(PATH, DATA).unwrap();
 
         let mut app = app();
-        app.add_systems(PreUpdate, load(file_from_path(PATH)));
+        app.add_systems(PreUpdate, load(static_file(PATH)));
 
         app.update();
 
@@ -546,7 +547,7 @@ mod tests {
         #[derive(Resource)]
         struct LoadRequest;
 
-        impl FilePath for LoadRequest {
+        impl GetFilePath for LoadRequest {
             fn path(&self) -> &Path {
                 Path::new(PATH)
             }
@@ -576,7 +577,7 @@ mod tests {
         #[derive(Event)]
         struct LoadRequest;
 
-        impl FilePath for LoadRequest {
+        impl GetFilePath for LoadRequest {
             fn path(&self) -> &Path {
                 Path::new(PATH)
             }
@@ -611,7 +612,7 @@ mod tests {
 
         app.add_systems(
             PreUpdate,
-            load(file_from_path(PATH).map_component(|_: &Dummy| Foo)),
+            load(static_file(PATH).map_component(|_: &Dummy| Foo)),
         );
 
         app.update();
