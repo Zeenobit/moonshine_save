@@ -225,7 +225,7 @@ pub fn save_scene(In(input): In<SaveInput>, world: &World) -> Saved {
 }
 
 /// A [`System`] which writes [`Saved`] data into a file at given `path`.
-pub fn write_to_static_file(
+pub fn write_static_file(
     path: PathBuf,
 ) -> impl Fn(In<Saved>, Res<AppTypeRegistry>) -> Result<Saved, SaveError> {
     move |In(saved), type_registry| {
@@ -240,7 +240,7 @@ pub fn write_to_static_file(
 }
 
 /// A [`System`] which writes [`Saved`] data into a file with its path defined at runtime.
-pub fn write_to_file(
+pub fn write_file(
     In((path, saved)): In<(PathBuf, Saved)>,
     type_registry: Res<AppTypeRegistry>,
 ) -> Result<Saved, SaveError> {
@@ -253,7 +253,7 @@ pub fn write_to_file(
     Ok(saved)
 }
 
-pub fn write_to_stream<S: Write>(
+pub fn write_stream<S: Write>(
     In((mut stream, saved)): In<(S, Saved)>,
     type_registry: Res<AppTypeRegistry>,
 ) -> Result<Saved, SaveError> {
@@ -263,7 +263,7 @@ pub fn write_to_stream<S: Write>(
     Ok(saved)
 }
 
-pub fn undo_map_scene(
+pub fn unmap_scene(
     In(mut result): In<Result<Saved, SaveError>>,
     world: &mut World,
 ) -> Result<Saved, SaveError> {
@@ -476,7 +476,7 @@ where
             .pipe(filter_entities::<F>)
             .pipe(map_scene)
             .pipe(save_scene);
-        let system = p.save(system).pipe(undo_map_scene).pipe(insert_saved);
+        let system = p.save(system).pipe(unmap_scene).pipe(insert_saved);
         p.finish(system).in_set(SaveSystem::Save)
     }
 
@@ -523,7 +523,7 @@ where
             .pipe(filter_entities::<F>)
             .pipe(map_scene)
             .pipe(save_scene);
-        let system = p.save(system).pipe(undo_map_scene).pipe(insert_saved);
+        let system = p.save(system).pipe(unmap_scene).pipe(insert_saved);
         p.finish(system).in_set(SaveSystem::Save)
     }
 
@@ -647,7 +647,7 @@ impl SavePipeline for StaticFile {
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        system.pipe(write_to_static_file(self.0.clone()))
+        system.pipe(write_static_file(self.0.clone()))
     }
 }
 
@@ -661,7 +661,7 @@ where
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
         system
             .pipe(move |In(saved): In<Saved>| (S::stream(), saved))
-            .pipe(write_to_stream)
+            .pipe(write_stream)
     }
 }
 
@@ -670,7 +670,7 @@ impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        system.pipe(get_file_from_resource::<R>).pipe(write_to_file)
+        system.pipe(get_file_from_resource::<R>).pipe(write_file)
     }
 }
 
@@ -684,7 +684,7 @@ where
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
         system
             .pipe(move |In(saved): In<Saved>, resource: Res<R>| (resource.stream(), saved))
-            .pipe(write_to_stream)
+            .pipe(write_stream)
     }
 }
 
@@ -693,7 +693,7 @@ impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        system.pipe(get_file_from_event::<E>).pipe(write_to_file)
+        system.pipe(get_file_from_event::<E>).pipe(write_file)
     }
 }
 
@@ -705,9 +705,7 @@ where
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        system
-            .pipe(get_stream_from_event::<E>)
-            .pipe(write_to_stream)
+        system.pipe(get_stream_from_event::<E>).pipe(write_stream)
     }
 }
 

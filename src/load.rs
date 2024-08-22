@@ -32,7 +32,7 @@
 //! # std::fs::remove_file("example.ron");
 //! ```
 
-use std::io;
+use std::io::{self, Read};
 use std::path::PathBuf;
 
 use bevy_app::{App, Plugin, PreUpdate};
@@ -50,6 +50,7 @@ use crate::{
     static_file, FileFromEvent, FileFromResource, GetFilePath, MapComponent, Pipeline, SceneMapper,
     StaticFile,
 };
+use crate::{GetStaticStream, GetStream, StaticStream, StreamFromEvent, StreamFromResource};
 
 /// A [`Plugin`] which configures [`LoadSystem`] in [`PreUpdate`] schedule.
 pub struct LoadPlugin;
@@ -269,7 +270,16 @@ pub trait LoadPipeline: Pipeline {
 
 impl LoadPipeline for StaticFile {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        IntoSystem::into_system(load_static_file(self.0.clone(), Default::default()))
+        IntoSystem::into_system(read_static_file(self.0.clone(), Default::default()))
+    }
+}
+
+impl<S: GetStaticStream> LoadPipeline for StaticStream<S>
+where
+    S::Stream: Read,
+{
+    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
+        IntoSystem::into_system((|| S::stream()).pipe(read_stream))
     }
 }
 
@@ -278,7 +288,16 @@ where
     R: Resource + GetFilePath,
 {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        get_file_from_resource::<R>.pipe(load_file)
+        get_file_from_resource::<R>.pipe(read_file)
+    }
+}
+
+impl<R: GetStream + Resource> LoadPipeline for StreamFromResource<R>
+where
+    R::Stream: Read,
+{
+    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
+        IntoSystem::into_system((|resource: Res<R>| resource.stream()).pipe(read_stream))
     }
 }
 
@@ -287,7 +306,16 @@ where
     E: Event + GetFilePath,
 {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        get_file_from_event::<E>.pipe(load_file)
+        get_file_from_event::<E>.pipe(read_file)
+    }
+}
+
+impl<E: GetStream + Event> LoadPipeline for StreamFromEvent<E>
+where
+    E::Stream: Read,
+{
+    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
+        IntoSystem::into_system(get_stream_from_event::<E>.pipe(read_stream))
     }
 }
 
@@ -349,7 +377,7 @@ impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
 }
 
 /// A [`System`] which reads [`Saved`] data from a file at given `path`.
-pub fn load_static_file(
+pub fn read_static_file(
     path: impl Into<PathBuf>,
     mapper: SceneMapper,
 ) -> impl Fn(Res<AppTypeRegistry>) -> Result<Saved, LoadError> {
@@ -371,7 +399,7 @@ pub fn load_static_file(
 }
 
 /// A [`System`] which reads [`Saved`] data from a file with its path defined at runtime.
-pub fn load_file(
+pub fn read_file(
     In(path): In<PathBuf>,
     type_registry: Res<AppTypeRegistry>,
 ) -> Result<Saved, LoadError> {
@@ -383,6 +411,25 @@ pub fn load_file(
         scene_deserializer.deserialize(&mut deserializer)?
     };
     info!("loaded from file: {path:?}");
+    Ok(Saved {
+        scene,
+        mapper: Default::default(),
+    })
+}
+
+pub fn read_stream<S: Read>(
+    In(mut stream): In<S>,
+    type_registry: Res<AppTypeRegistry>,
+) -> Result<Saved, LoadError> {
+    let mut input = Vec::new();
+    stream.read_to_end(&mut input)?;
+    let mut deserializer = ron::Deserializer::from_bytes(&input)?;
+    let scene = {
+        let type_registry = &type_registry.read();
+        let scene_deserializer = SceneDeserializer { type_registry };
+        scene_deserializer.deserialize(&mut deserializer)?
+    };
+    info!("loaded from stream");
     Ok(Saved {
         scene,
         mapper: Default::default(),
@@ -475,9 +522,9 @@ where
 /// If multiple events are sent in a single update cycle, only the first one is processed.
 ///
 /// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
-pub fn get_file_from_event<R>(mut events: EventReader<R>) -> PathBuf
+pub fn get_file_from_event<E>(mut events: EventReader<E>) -> PathBuf
 where
-    R: GetFilePath + Event,
+    E: GetFilePath + Event,
 {
     let mut iter = events.read();
     let event = iter.next().unwrap();
@@ -487,13 +534,26 @@ where
     event.path().to_owned()
 }
 
+pub fn get_stream_from_event<E>(mut events: EventReader<E>) -> E::Stream
+where
+    E: GetStream + Event,
+{
+    let mut iter = events.read();
+    let event = iter.next().unwrap();
+    if iter.next().is_some() {
+        warn!("multiple load request events received; only the first one is processed.");
+    }
+    event.stream()
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::{fs::*, path::Path};
 
     use bevy::prelude::*;
 
     use super::*;
+    use crate::*;
 
     pub const DATA: &str = "(
         resources: {},
@@ -521,7 +581,7 @@ mod tests {
     fn test_load_file() {
         pub const PATH: &str = "test_load_file.ron";
 
-        fs::write(PATH, DATA).unwrap();
+        write(PATH, DATA).unwrap();
 
         let mut app = app();
         app.add_systems(PreUpdate, load(static_file(PATH)));
@@ -535,14 +595,45 @@ mod tests {
             .get_single(world)
             .is_ok());
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_load_stream() {
+        pub const PATH: &str = "test_load_stream.ron";
+
+        struct LoadStream;
+
+        impl GetStaticStream for LoadStream {
+            type Stream = File;
+
+            fn stream() -> Self::Stream {
+                File::open(PATH).unwrap()
+            }
+        }
+
+        write(PATH, DATA).unwrap();
+
+        let mut app = app();
+        app.add_systems(PreUpdate, load(static_stream(LoadStream)));
+
+        app.update();
+
+        let world = app.world_mut();
+        assert!(!world.contains_resource::<Loaded>());
+        assert!(world
+            .query_filtered::<(), With<Dummy>>()
+            .get_single(world)
+            .is_ok());
+
+        remove_file(PATH).unwrap();
     }
 
     #[test]
     fn test_load_file_from_resource() {
         pub const PATH: &str = "test_load_file_from_resource.ron";
 
-        fs::write(PATH, DATA).unwrap();
+        write(PATH, DATA).unwrap();
 
         #[derive(Resource)]
         struct LoadRequest;
@@ -565,14 +656,46 @@ mod tests {
             .get_single(world)
             .is_ok());
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_load_stream_from_resource() {
+        pub const PATH: &str = "test_load_stream_from_resource.ron";
+
+        write(PATH, DATA).unwrap();
+
+        #[derive(Resource)]
+        struct LoadRequest(&'static str);
+
+        impl GetStream for LoadRequest {
+            type Stream = File;
+
+            fn stream(&self) -> Self::Stream {
+                File::open(self.0).unwrap()
+            }
+        }
+
+        let mut app = app();
+        app.add_systems(PreUpdate, load(stream_from_resource::<LoadRequest>()));
+
+        app.world_mut().insert_resource(LoadRequest(PATH));
+        app.update();
+
+        let world = app.world_mut();
+        assert!(world
+            .query_filtered::<(), With<Dummy>>()
+            .get_single(world)
+            .is_ok());
+
+        remove_file(PATH).unwrap();
     }
 
     #[test]
     fn test_load_file_from_event() {
         pub const PATH: &str = "test_load_file_from_event.ron";
 
-        fs::write(PATH, DATA).unwrap();
+        write(PATH, DATA).unwrap();
 
         #[derive(Event)]
         struct LoadRequest;
@@ -596,14 +719,47 @@ mod tests {
             .get_single(world)
             .is_ok());
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_load_stream_from_event() {
+        pub const PATH: &str = "test_load_stream_from_event.ron";
+
+        write(PATH, DATA).unwrap();
+
+        #[derive(Event)]
+        struct LoadRequest(&'static str);
+
+        impl GetStream for LoadRequest {
+            type Stream = File;
+
+            fn stream(&self) -> Self::Stream {
+                File::open(self.0).unwrap()
+            }
+        }
+
+        let mut app = app();
+        app.add_event::<LoadRequest>()
+            .add_systems(PreUpdate, load(stream_from_event::<LoadRequest>()));
+
+        app.world_mut().send_event(LoadRequest(PATH));
+        app.update();
+
+        let world = app.world_mut();
+        assert!(world
+            .query_filtered::<(), With<Dummy>>()
+            .get_single(world)
+            .is_ok());
+
+        remove_file(PATH).unwrap();
     }
 
     #[test]
     fn test_load_map_component() {
         pub const PATH: &str = "test_load_map_component.ron";
 
-        fs::write(PATH, DATA).unwrap();
+        write(PATH, DATA).unwrap();
 
         let mut app = app();
 
@@ -627,6 +783,6 @@ mod tests {
             .get_single(world)
             .is_err());
 
-        fs::remove_file(PATH).unwrap();
+        remove_file(PATH).unwrap();
     }
 }
