@@ -22,9 +22,6 @@ pub mod prelude {
         SaveInput, SavePlugin, SaveSystem, Saved,
     };
 
-    #[deprecated(since = "0.3.9", note = "use `SaveInput` instead")]
-    pub type SaveFilter = SaveInput;
-
     pub use bevy_ecs::{
         entity::{EntityMapper, MapEntities},
         reflect::ReflectMapEntities,
