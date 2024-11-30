@@ -23,4 +23,4 @@ moonshine-util = { version = "0.2.6", path = "../util" }
 
 [dev-dependencies]
 bevy = "0.15.*"
-moonshine-check = { version = "0.1.1", path = "../check" }
+moonshine-check = { version = "0.1.*", path = "../check" }
