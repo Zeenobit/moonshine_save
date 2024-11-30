@@ -128,62 +128,48 @@ struct LoadButton;
 
 fn setup(mut commands: Commands) {
     // Spawn camera
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Camera2d);
 
     // Spawn army text
 
     // Spawn buttons
     commands
-        .spawn(NodeBundle {
-            style: Style {
-                width: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                padding: UiRect::all(Val::Px(20.)),
-                ..default()
-            },
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::all(Val::Px(20.)),
             ..default()
         })
         .with_children(|root| {
-            root.spawn(TextBundle {
-                text: Text::from_section(
-                    HELP_TEXT,
-                    TextStyle {
-                        font_size: 14.0,
-                        color: Color::WHITE,
-                        ..default()
-                    },
-                ),
-                style: Style {
+            root.spawn((
+                Node {
                     margin: UiRect::bottom(Val::Px(20.)),
                     ..default()
                 },
-                ..default()
-            });
-            root.spawn((
-                Army,
-                TextBundle {
-                    text: Text::from_section(
-                        "",
-                        TextStyle {
-                            font_size: 30.0,
-                            color: Color::WHITE,
-                            ..default()
-                        },
-                    ),
-                    style: Style {
-                        margin: UiRect::bottom(Val::Px(20.)),
-                        ..default()
-                    },
+                Text::new(HELP_TEXT),
+                TextFont {
+                    font_size: 14.0,
                     ..default()
                 },
+                TextColor(Color::WHITE),
+            ));
+            root.spawn((
+                Army,
+                Node {
+                    margin: UiRect::bottom(Val::Px(20.)),
+                    ..default()
+                },
+                Text::new(""),
+                TextFont {
+                    font_size: 30.0,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
             ));
 
             // Buttons Row
-            root.spawn(NodeBundle {
-                style: Style {
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                },
+            root.spawn(Node {
+                flex_direction: FlexDirection::Row,
                 ..default()
             })
             .with_children(|parent| {
@@ -200,38 +186,33 @@ fn spawn_button(parent: &mut ChildBuilder, value: impl Into<String>, bundle: imp
     parent
         .spawn((
             bundle,
-            ButtonBundle {
-                background_color: bevy::color::palettes::css::DARK_GRAY.into(),
-                style: Style {
+            (
+                Node {
                     margin: UiRect::all(Val::Px(5.)),
                     padding: UiRect::new(Val::Px(10.), Val::Px(10.), Val::Px(5.), Val::Px(5.)),
                     ..default()
                 },
-                ..default()
-            },
+                Button,
+            ),
+            BackgroundColor(bevy::color::palettes::css::DARK_GRAY.into()),
         ))
         .with_children(|fly_button| {
-            fly_button.spawn(TextBundle {
-                text: Text::from_section(
-                    value.into(),
-                    TextStyle {
-                        font_size: 20.,
-                        color: Color::WHITE,
-                        ..default()
-                    },
-                ),
-                ..default()
-            });
+            fly_button.spawn((
+                Node { ..default() },
+                Text::new(value.into()),
+                TextFont {
+                    font_size: 20.,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
         });
 }
 
 fn spawn_space(parent: &mut ChildBuilder, width: Val, height: Val) {
-    parent.spawn(NodeBundle {
-        style: Style {
-            width,
-            height,
-            ..default()
-        },
+    parent.spawn(Node {
+        width,
+        height,
         ..default()
     });
 }
@@ -258,8 +239,7 @@ fn update_text(
         .filter(|weapon_kind| matches!(weapon_kind, Ranged))
         .count();
 
-    army_query.single_mut().sections.first_mut().unwrap().value =
-        format!("Soldiers: {melee_count} Melee, {ranged_count} Ranged");
+    army_query.single_mut().0 = format!("Soldiers: {melee_count} Melee, {ranged_count} Ranged");
 }
 
 const DEFAULT_BUTTON_COLOR: Color = Color::srgb(0.15, 0.15, 0.15);

@@ -13,7 +13,7 @@
 //! #   let mut app = App::new();
 //! #   app.add_plugins((MinimalPlugins, SavePlugin))
 //! #       .register_type::<Data>()
-//! #       .add_systems(PreUpdate, save_default().into_file("example.ron"));
+//! #       .add_systems(PreUpdate, save_default().into(static_file("example.ron")));
 //! #   app.world_mut().spawn((Data(12), Save));
 //! #   app.update();
 //! # }
@@ -23,7 +23,7 @@
 //! let mut app = App::new();
 //! app.add_plugins((MinimalPlugins, LoadPlugin))
 //!     .register_type::<Data>()
-//!     .add_systems(PreUpdate, load_from_file("example.ron"));
+//!     .add_systems(PreUpdate, load(static_file("example.ron")));
 //!
 //! app.update();
 //!
@@ -180,7 +180,7 @@ impl From<SceneSpawnError> for LoadError {
 ///
 /// let mut app = App::new();
 /// app.add_plugins(LoadPlugin)
-///     .add_systems(PreUpdate, load_from_file("example.ron").run_if(should_load));
+///     .add_systems(PreUpdate, load(static_file("example.ron")).run_if(should_load));
 ///
 /// fn should_load() -> bool {
 ///     todo!()
@@ -212,7 +212,7 @@ pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper)
 ///     pub path: PathBuf,
 /// }
 ///
-/// impl FilePath for LoadRequest {
+/// impl GetFilePath for LoadRequest {
 ///     fn path(&self) -> &Path {
 ///         self.path.as_ref()
 ///     }
@@ -220,7 +220,7 @@ pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper)
 ///
 /// let mut app = App::new();
 /// app.add_plugins((MinimalPlugins, LoadPlugin))
-///     .add_systems(Update, load_from_file_on_request::<LoadRequest>());
+///     .add_systems(Update, load(file_from_resource::<LoadRequest>()));
 /// ```
 #[deprecated]
 pub fn load_from_file_on_request<R>() -> SystemConfigs
@@ -288,7 +288,7 @@ where
     R: Resource + GetFilePath,
 {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        get_file_from_resource::<R>.pipe(read_file)
+        IntoSystem::into_system(get_file_from_resource::<R>.pipe(read_file))
     }
 }
 
@@ -306,7 +306,7 @@ where
     E: Event + GetFilePath,
 {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        get_file_from_event::<E>.pipe(read_file)
+        IntoSystem::into_system(get_file_from_event::<E>.pipe(read_file))
     }
 }
 
@@ -326,7 +326,8 @@ pub fn load(p: impl LoadPipeline) -> SystemConfigs {
         .pipe(write_to_world)
         .pipe(insert_into_loaded(Save))
         .pipe(insert_loaded);
-    p.finish(system).in_set(LoadSystem::Load)
+    p.finish(IntoSystem::into_system(system))
+        .in_set(LoadSystem::Load)
 }
 
 pub trait LoadMapComponent: Sized {
@@ -365,14 +366,14 @@ impl<P: Pipeline> Pipeline for LoadPipelineBuilder<P> {
 impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
         let mapper = self.mapper.clone();
-        self.pipeline
-            .load()
-            .pipe(move |In(saved): In<Result<Saved, LoadError>>| {
+        IntoSystem::into_system(self.pipeline.load().pipe(
+            move |In(saved): In<Result<Saved, LoadError>>| {
                 saved.map(|saved| Saved {
                     mapper: mapper.clone(),
                     ..saved
                 })
-            })
+            },
+        ))
     }
 }
 
@@ -449,7 +450,7 @@ pub fn unload<Filter: QueryFilter>(
         .iter(world)
         .collect();
     for entity in entities {
-        if let Some(entity) = world.get_entity_mut(entity) {
+        if let Ok(entity) = world.get_entity_mut(entity) {
             entity.despawn_recursive();
         }
     }
@@ -466,7 +467,7 @@ pub fn write_to_world(
     scene.write_to_world(world, &mut entity_map)?;
     if !mapper.is_empty() {
         for entity in entity_map.values() {
-            if let Some(entity) = world.get_entity_mut(*entity) {
+            if let Ok(entity) = world.get_entity_mut(*entity) {
                 mapper.replace(entity);
             }
         }
@@ -481,7 +482,7 @@ pub fn insert_into_loaded(
     move |In(result), world| {
         if let Ok(loaded) = &result {
             for (saved_entity, entity) in loaded.entity_map.iter() {
-                if let Some(mut entity) = world.get_entity_mut(*entity) {
+                if let Ok(mut entity) = world.get_entity_mut(*entity) {
                     entity.insert(bundle.clone());
                 } else {
                     error!(

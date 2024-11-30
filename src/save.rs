@@ -12,7 +12,7 @@
 //! let mut app = App::new();
 //! app.add_plugins((MinimalPlugins, SavePlugin))
 //!     .register_type::<Data>()
-//!     .add_systems(PreUpdate, save_default().into_file("example.ron"));
+//!     .add_systems(PreUpdate, save_default().into(static_file("example.ron")));
 //!
 //! app.world_mut().spawn((Data(12), Save));
 //! app.update();
@@ -202,7 +202,7 @@ pub fn map_scene(In(mut input): In<SaveInput>, world: &mut World) -> SaveInput {
 /// All save pipelines should start with this system.
 pub fn save_scene(In(input): In<SaveInput>, world: &World) -> Saved {
     let mut builder = DynamicSceneBuilder::from_world(world)
-        .with_filter(input.components)
+        .with_component_filter(input.components)
         .with_resource_filter(input.resources)
         .extract_resources();
     match input.entities {
@@ -476,8 +476,12 @@ where
             .pipe(filter_entities::<F>)
             .pipe(map_scene)
             .pipe(save_scene);
-        let system = p.save(system).pipe(unmap_scene).pipe(insert_saved);
-        p.finish(system).in_set(SaveSystem::Save)
+        let system = p
+            .save(IntoSystem::into_system(system))
+            .pipe(unmap_scene)
+            .pipe(insert_saved);
+        p.finish(IntoSystem::into_system(system))
+            .in_set(SaveSystem::Save)
     }
 
     #[deprecated(note = "use `into` instead")]
@@ -523,8 +527,12 @@ where
             .pipe(filter_entities::<F>)
             .pipe(map_scene)
             .pipe(save_scene);
-        let system = p.save(system).pipe(unmap_scene).pipe(insert_saved);
-        p.finish(system).in_set(SaveSystem::Save)
+        let system = p
+            .save(IntoSystem::into_system(system))
+            .pipe(unmap_scene)
+            .pipe(insert_saved);
+        p.finish(IntoSystem::into_system(system))
+            .in_set(SaveSystem::Save)
     }
 
     /// Finishes the save pipeline by writing the saved data into a file at given `path`.
@@ -563,13 +571,13 @@ where
 /// use bevy::prelude::*;
 /// use moonshine_save::prelude::*;
 ///
-/// fn save_filter(/* ... */) -> SaveFilter {
+/// fn save_input(/* ... */) -> SaveInput {
 ///     todo!()
 /// }
 ///
 /// let mut app = App::new();
 /// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_with::<With<Save>, _, _>(save_filter).into_file("example.ron"));
+///     .add_systems(PreUpdate, save_with::<With<Save>, _, _>(save_input).into(static_file("example.ron")));
 /// ```
 pub fn save_with<F: QueryFilter, S: IntoSystem<(), SaveInput, M>, M>(
     input_source: S,
@@ -589,13 +597,13 @@ pub fn save_with<F: QueryFilter, S: IntoSystem<(), SaveInput, M>, M>(
 /// use bevy::prelude::*;
 /// use moonshine_save::prelude::*;
 ///
-/// fn save_filter(/* ... */) -> SaveFilter {
+/// fn save_input(/* ... */) -> SaveInput {
 ///     todo!()
 /// }
 ///
 /// let mut app = App::new();
 /// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_default_with(save_filter).into_file("example.ron"));
+///     .add_systems(PreUpdate, save_default_with(save_input).into(static_file("example.ron")));
 /// ```
 pub fn save_default_with<S: IntoSystem<(), SaveInput, M>, M>(
     s: S,
@@ -618,13 +626,13 @@ pub fn save_default_with<S: IntoSystem<(), SaveInput, M>, M>(
 /// use bevy::prelude::*;
 /// use moonshine_save::prelude::*;
 ///
-/// fn save_filter(/* ... */) -> SaveFilter {
+/// fn save_input(/* ... */) -> SaveInput {
 ///     todo!()
 /// }
 ///
 /// let mut app = App::new();
 /// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_all_with(save_filter).into_file("example.ron"));
+///     .add_systems(PreUpdate, save_all_with(save_input).into(static_file("example.ron")));
 /// ```
 pub fn save_all_with<S: IntoSystem<(), SaveInput, M>, M>(
     input_source: S,
@@ -647,7 +655,7 @@ impl SavePipeline for StaticFile {
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        system.pipe(write_static_file(self.0.clone()))
+        IntoSystem::into_system(system.pipe(write_static_file(self.0.clone())))
     }
 }
 
@@ -659,9 +667,11 @@ where
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        system
-            .pipe(move |In(saved): In<Saved>| (S::stream(), saved))
-            .pipe(write_stream)
+        IntoSystem::into_system(
+            system
+                .pipe(move |In(saved): In<Saved>| (S::stream(), saved))
+                .pipe(write_stream),
+        )
     }
 }
 
@@ -670,7 +680,7 @@ impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        system.pipe(get_file_from_resource::<R>).pipe(write_file)
+        IntoSystem::into_system(system.pipe(get_file_from_resource::<R>).pipe(write_file))
     }
 }
 
@@ -682,9 +692,11 @@ where
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        system
-            .pipe(move |In(saved): In<Saved>, resource: Res<R>| (resource.stream(), saved))
-            .pipe(write_stream)
+        IntoSystem::into_system(
+            system
+                .pipe(move |In(saved): In<Saved>, resource: Res<R>| (resource.stream(), saved))
+                .pipe(write_stream),
+        )
     }
 }
 
@@ -693,7 +705,7 @@ impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        system.pipe(get_file_from_event::<E>).pipe(write_file)
+        IntoSystem::into_system(system.pipe(get_file_from_event::<E>).pipe(write_file))
     }
 }
 
@@ -705,7 +717,7 @@ where
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        system.pipe(get_stream_from_event::<E>).pipe(write_stream)
+        IntoSystem::into_system(system.pipe(get_stream_from_event::<E>).pipe(write_stream))
     }
 }
 
@@ -866,7 +878,7 @@ mod tests {
 
     #[test]
     fn test_save_into_stream_from_event() {
-        pub const PATH: &str = "test_save_into_file_from_event.ron";
+        pub const PATH: &str = "test_save_into_stream_from_event.ron";
 
         #[derive(Event)]
         struct SaveRequest(&'static str);
