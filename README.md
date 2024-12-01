@@ -175,16 +175,8 @@ struct PlayerBundle {
 > ⚠️ Saved components must implement [`Reflect`](https://docs.rs/bevy/latest/bevy/reflect/trait.Reflect.html) and be [registered types](https://docs.rs/bevy/latest/bevy/app/struct.App.html#method.register_type).
 
 Add [`SavePlugin`] and register your serialized components:
-```rust
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-##[derive(Component, Default, Reflect)]
-##[reflect(Component)]
-#struct Level(u32);
-##[derive(Component, Default, Reflect)]
-##[reflect(Component)]
-#struct Player(u32);
-App::new().add_plugins(SavePlugin)
+```rust,ignore
+app.add_plugins(SavePlugin)
     .register_type::<Player>()
     .register_type::<Level>();
 ```
@@ -193,10 +185,8 @@ To invoke the save process, you must define a [`SavePipeline`]. Each save pipeli
 
 You may start a save pipeline using [`save_default`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_default.html) which saves all entities with a [`Save`] component.
 
-```rust
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-App::new().add_systems(PreUpdate, save_default().into_file("saved.ron"));
+```rust,ignore
+app.add_systems(PreUpdate, save_default().into_file("saved.ron"));
 ```
 
 Alternative, you may also use [`save_all`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_all.html) to save all entities and [`save`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save.html) to provide a custom [`QueryFilter`](https://docs.rs/bevy/latest/bevy/ecs/query/trait.QueryFilter.html) for your saved entities.
@@ -207,14 +197,11 @@ When used on its own, a pipeline would save the world state on every application
 This is often undesirable because you typically want the save process to happen at specific times during runtime.
 To do this, you can combine the save pipeline with [`.run_if`](https://docs.rs/bevy/latest/bevy/ecs/schedule/trait.IntoSystemConfigs.html#method.run_if):
 
-```rust
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-App::new()
-    .add_systems(PreUpdate,
-        save_default()
-            .into(static_file("saved.ron"))
-            .run_if(should_save));
+```rust,ignore
+app.add_systems(PreUpdate,
+    save_default()
+        .into(static_file("saved.ron"))
+        .run_if(should_save));
 
 fn should_save( /* ... */ ) -> bool {
     todo!()
@@ -227,14 +214,9 @@ By default, resources are **NOT** included in the save data.
 
 To include resources into the save pipeline, use [`.include_resource<R>`](https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SavePipelineBuilder.html#method.include_resource):
 
-```rust
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-##[derive(Resource)]
-#struct R;
-App::new()
-    .add_systems(PreUpdate,
-        save_default()
+```rust,ignore
+app.add_systems(PreUpdate,
+    save_default()
         .include_resource::<R>()
         .into(static_file("saved.ron")));
 ```
@@ -245,14 +227,9 @@ By default, all serializable components on saved entities are included in the sa
 
 To exclude components from the save pipeline, use [`.exclude_component<T>`](https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SavePipelineBuilder.html#method.exclude_component):
 
-```rust
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-##[derive(Component)]
-#struct T;
-App::new()
-    .add_systems(PreUpdate,
-        save_default()
+```rust,ignore
+app.add_systems(PreUpdate,
+    save_default()
         .exclude_component::<T>()
         .into(static_file("saved.ron")));
 ```
@@ -268,10 +245,7 @@ Similar to [`Save`], this is a marker which can be added to bundles or inserted 
 
 Any entity marked with `Unload` is despawned recursively before loading begins.
 
-```rust
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-#[derive(Bundle)]
+```rust,ignore
 struct PlayerSpriteBundle {
     /* ... */
     unload: Unload,
@@ -282,12 +256,7 @@ You should design your game logic to keep saved data separate from game visuals.
 
 Any saved components which reference entities must implement [`MapEntities`](https://docs.rs/bevy/latest/bevy/ecs/entity/trait.MapEntities.html):
 
-```rust
-#use bevy::prelude::*;
-#use bevy::ecs::entity::{EntityMapper, MapEntities};
-#use moonshine_save::prelude::*;
-#[derive(Component, Default, Reflect)]
-#[reflect(Component, MapEntities)]
+```rust,ignore
 struct PlayerWeapon(Option<Entity>);
 
 impl MapEntities for PlayerWeapon {
@@ -301,34 +270,22 @@ impl MapEntities for PlayerWeapon {
 
 Make sure [`LoadPlugin`](https://docs.rs/moonshine-save/latest/moonshine_save/load/struct.LoadPlugin.html) is added and your types are registered:
 
-```rust
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-##[derive(Component, Default, Reflect)]
-##[reflect(Component)]
-#struct Player(u32);
-##[derive(Component, Default, Reflect)]
-##[reflect(Component)]
-#struct Level(u32);
-App::new().add_plugins(LoadPlugin)
+```rust,ignore
+app.add_plugins(LoadPlugin)
     .register_type::<Player>()
     .register_type::<Level>();
 ```
 
 To invoke the load process, you must add a load pipeline. The default load pipeline is [`load_from_file`](https://docs.rs/moonshine-save/latest/moonshine_save/load/fn.load_from_file.html):
 
-```rust
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-App::new().add_systems(PreUpdate, load(static_file("saved.ron")));
+```rust,ignore
+app.add_systems(PreUpdate, load(static_file("saved.ron")));
 ```
 
 Similar to the save pipeline, you typically want to use `load_from_file` with [`.run_if`](https://docs.rs/bevy/latest/bevy/ecs/schedule/trait.IntoSystemConfigs.html#method.run_if):
 
-```rust
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-App::new().add_systems(PreUpdate, load(static_file("saved.ron")).run_if(should_load));
+```rust,ignore
+app.add_systems(PreUpdate, load(static_file("saved.ron")).run_if(should_load));
 
 fn should_load( /* ... */ ) -> bool {
     todo!()
@@ -446,24 +403,17 @@ On its own, this crate does not support backwards compatibility, versioning, or 
 However, you may want to use [✅ Moonshine Check](https://github.com/Zeenobit/moonshine_check) to solve these problems in a generic way.
 
 Using [`check`], you may validate your saved data after load to deal with any corrupt or invalid entities:
-```rust
-# use bevy::prelude::*;
-# use moonshine_save::prelude::*;
-# #[derive(Component, Reflect)]
-# #[reflect(Component)]
-# struct A;
-# #[derive(Component, Reflect)]
-# #[reflect(Component)]
-# struct B;
+```rust,ignore
 use moonshine_check::prelude::*;
 
-App::new().check::<A, Without<B>>(purge()); // Despawn (recursively) any entity of kind `A` which spawns without a `B` component
+// Despawn (recursively) any entity of kind `A` which spawns without a `B` component
+app.check::<A, Without<B>>(purge());
 ```
 
 You may also use this to update your save data to a new version.
 
 For example, suppose we had some component `B` at some point in time:
-```rust
+```rust,ignore
 #use bevy::prelude::*;
 #use moonshine_save::prelude::*;
 #[derive(Component, Reflect)]
@@ -475,12 +425,7 @@ struct B {
 ```
 
 Now, we want to refactor this component with some new fields. In order to keep your saved data backwards compatible, create a new version of your component with a new name. Then use [`check`] to upgrade the component after load:
-```rust
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-##[derive(Component, Reflect)]
-##[reflect(Component)]
-#struct B;
+```rust,ignore
 use moonshine_check::prelude::*;
 
 #[derive(Component, Reflect)]
@@ -496,7 +441,7 @@ impl B2 {
     }
 }
 
-App::new().check::<B, ()>(repair_replace_with(B2::upgrade));
+app.check::<B, ()>(repair_replace_with(B2::upgrade));
 ```
 
 > [!NOTE]
