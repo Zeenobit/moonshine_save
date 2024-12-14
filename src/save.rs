@@ -588,61 +588,6 @@ pub fn save_with<F: QueryFilter, S: IntoSystem<(), SaveInput, M>, M>(
     }
 }
 
-/// Creates a [`DynamicSavePipelineBuilder`] which saves all entities with a [`Save`] component and a filter source `S`.
-///
-/// Additionally, any valid system which returns a [`SaveInput`] may be used to provide the initial save input dynamically.
-///
-/// # Example
-/// ```
-/// use bevy::prelude::*;
-/// use moonshine_save::prelude::*;
-///
-/// fn save_input(/* ... */) -> SaveInput {
-///     todo!()
-/// }
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_default_with(save_input).into(static_file("example.ron")));
-/// ```
-pub fn save_default_with<S: IntoSystem<(), SaveInput, M>, M>(
-    s: S,
-) -> DynamicSavePipelineBuilder<With<Save>, S::System> {
-    DynamicSavePipelineBuilder {
-        query: PhantomData,
-        input_source: IntoSystem::into_system(s),
-    }
-}
-
-/// Creates a [`DynamicSavePipelineBuilder`] which saves all entities unconditionally and a filter source `S`.
-///
-/// Additionally, any valid system which returns a [`SaveInput`] may be used to provide the initial save input dynamically.
-///
-/// # Warning
-/// Be careful about using this builder as some entities and/or components may not be safely serializable.
-///
-/// # Example
-/// ```
-/// use bevy::prelude::*;
-/// use moonshine_save::prelude::*;
-///
-/// fn save_input(/* ... */) -> SaveInput {
-///     todo!()
-/// }
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_all_with(save_input).into(static_file("example.ron")));
-/// ```
-pub fn save_all_with<S: IntoSystem<(), SaveInput, M>, M>(
-    input_source: S,
-) -> DynamicSavePipelineBuilder<(), S::System> {
-    DynamicSavePipelineBuilder {
-        query: PhantomData,
-        input_source: IntoSystem::into_system(input_source),
-    }
-}
-
 pub trait SavePipeline: Pipeline {
     fn save(
         &self,
