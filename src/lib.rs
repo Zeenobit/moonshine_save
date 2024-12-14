@@ -18,8 +18,8 @@ pub mod prelude {
     };
 
     pub use crate::save::{
-        save, save_all, save_default, save_with, Save, SaveError, SaveInput, SavePlugin,
-        SaveSystem, Saved,
+        save, save_all, save_all_with, save_default, save_default_with, save_with, Save, SaveError,
+        SaveInput, SavePlugin, SaveSystem, Saved,
     };
 
     pub use bevy_ecs::{
