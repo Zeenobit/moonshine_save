@@ -512,21 +512,14 @@ where
 /// A convenient builder for defining a [`SavePipeline`] with a dynamic [`SaveInput`] which can be provided from any [`System`].
 ///
 /// See [`save_with`], [`save_default_with`], and [`save_all_with`] on how to create an instance of this type.
-pub struct DynamicSavePipelineBuilder<F: QueryFilter, S: System<In = (), Out = SaveInput>> {
-    query: PhantomData<F>,
+pub struct DynamicSavePipelineBuilder<S: System<In = (), Out = SaveInput>> {
     input_source: S,
 }
 
-impl<F: QueryFilter, S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<F, S>
-where
-    F: 'static,
-{
+impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
     pub fn into(self, p: impl SavePipeline) -> SystemConfigs {
         let Self { input_source, .. } = self;
-        let system = input_source
-            .pipe(filter_entities::<F>)
-            .pipe(map_scene)
-            .pipe(save_scene);
+        let system = input_source.pipe(map_scene).pipe(save_scene);
         let system = p
             .save(IntoSystem::into_system(system))
             .pipe(unmap_scene)
@@ -577,13 +570,12 @@ where
 ///
 /// let mut app = App::new();
 /// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_with::<With<Save>, _, _>(save_input).into(static_file("example.ron")));
+///     .add_systems(PreUpdate, save_with(save_input).into(static_file("example.ron")));
 /// ```
-pub fn save_with<F: QueryFilter, S: IntoSystem<(), SaveInput, M>, M>(
+pub fn save_with<S: IntoSystem<(), SaveInput, M>, M>(
     input_source: S,
-) -> DynamicSavePipelineBuilder<F, S::System> {
+) -> DynamicSavePipelineBuilder<S::System> {
     DynamicSavePipelineBuilder {
-        query: PhantomData,
         input_source: IntoSystem::into_system(input_source),
     }
 }
@@ -605,11 +597,14 @@ pub fn save_with<F: QueryFilter, S: IntoSystem<(), SaveInput, M>, M>(
 /// app.add_plugins((MinimalPlugins, SavePlugin))
 ///     .add_systems(PreUpdate, save_default_with(save_input).into(static_file("example.ron")));
 /// ```
+#[deprecated(
+    since = "3.10.0",
+    note = "use 'save_with' instead and filter entities in your save input source instead"
+)]
 pub fn save_default_with<S: IntoSystem<(), SaveInput, M>, M>(
     s: S,
-) -> DynamicSavePipelineBuilder<With<Save>, S::System> {
+) -> DynamicSavePipelineBuilder<S::System> {
     DynamicSavePipelineBuilder {
-        query: PhantomData,
         input_source: IntoSystem::into_system(s),
     }
 }
@@ -634,11 +629,14 @@ pub fn save_default_with<S: IntoSystem<(), SaveInput, M>, M>(
 /// app.add_plugins((MinimalPlugins, SavePlugin))
 ///     .add_systems(PreUpdate, save_all_with(save_input).into(static_file("example.ron")));
 /// ```
+#[deprecated(
+    since = "3.10.0",
+    note = "use 'save_with' instead and filter entities in your save input source instead"
+)]
 pub fn save_all_with<S: IntoSystem<(), SaveInput, M>, M>(
     input_source: S,
-) -> DynamicSavePipelineBuilder<(), S::System> {
+) -> DynamicSavePipelineBuilder<S::System> {
     DynamicSavePipelineBuilder {
-        query: PhantomData,
         input_source: IntoSystem::into_system(input_source),
     }
 }
@@ -967,20 +965,18 @@ mod tests {
         #[reflect(Component)]
         struct Foo;
 
-        fn deny_foo() -> SaveInput {
+        fn deny_foo(entities: Query<Entity, With<Dummy>>) -> SaveInput {
             SaveInput {
+                entities: EntityFilter::allow(&entities),
                 components: SceneFilter::default().deny::<Foo>(),
                 ..Default::default()
             }
         }
 
         let mut app = app();
-        app.add_systems(
-            PreUpdate,
-            save_default_with(deny_foo).into(static_file(PATH)),
-        );
+        app.add_systems(PreUpdate, save_with(deny_foo).into(static_file(PATH)));
 
-        app.world_mut().spawn((Dummy, Foo, Save));
+        app.world_mut().spawn((Dummy, Foo));
         app.update();
 
         let data = read_to_string(PATH).unwrap();

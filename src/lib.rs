@@ -18,14 +18,17 @@ pub mod prelude {
     };
 
     pub use crate::save::{
-        save, save_all, save_all_with, save_default, save_default_with, save_with, Save, SaveError,
-        SaveInput, SavePlugin, SaveSystem, Saved,
+        save, save_all, save_default, save_with, Save, SaveError, SaveInput, SavePlugin,
+        SaveSystem, Saved,
     };
 
     pub use bevy_ecs::{
         entity::{EntityMapper, MapEntities},
         reflect::ReflectMapEntities,
     };
+
+    #[allow(deprecated)]
+    pub use crate::save::{save_all_with, save_default_with};
 
     pub use crate::{file_from_event, file_from_resource, static_file, GetFilePath};
 }
