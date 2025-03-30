@@ -45,10 +45,8 @@ use moonshine_util::system::*;
 use serde::de::DeserializeSeed;
 
 use crate::{
-    file_from_event, file_from_resource,
     save::{Save, SaveSystem, Saved},
-    static_file, FileFromEvent, FileFromResource, GetFilePath, MapComponent, Pipeline, SceneMapper,
-    StaticFile,
+    FileFromEvent, FileFromResource, GetFilePath, MapComponent, Pipeline, SceneMapper, StaticFile,
 };
 use crate::{GetStaticStream, GetStream, StaticStream, StreamFromEvent, StreamFromResource};
 
@@ -162,106 +160,6 @@ impl From<SceneSpawnError> for LoadError {
     fn from(e: SceneSpawnError) -> Self {
         Self::Scene(e)
     }
-}
-
-/// Default [`LoadPipeline`].
-///
-/// # Usage
-///
-/// This pipeline tries to load all saved entities from a file at given `path`. If successful, it
-/// despawns all entities marked with [`Unload`] (recursively) and spawns the loaded entities.
-///
-/// Typically, it should be used with [`run_if`](bevy_ecs::schedule::SystemSet::run_if).
-///
-/// # Example
-/// ```
-/// use bevy::prelude::*;
-/// use moonshine_save::prelude::*;
-///
-/// let mut app = App::new();
-/// app.add_plugins(LoadPlugin)
-///     .add_systems(PreUpdate, load(static_file("example.ron")).run_if(should_load));
-///
-/// fn should_load() -> bool {
-///     todo!()
-/// }
-/// ```
-#[deprecated]
-pub fn load_from_file(path: impl Into<PathBuf>) -> SystemConfigs {
-    load(static_file(path))
-}
-
-#[deprecated]
-pub fn load_from_file_with_mapper(path: impl Into<PathBuf>, mapper: SceneMapper) -> SystemConfigs {
-    load(LoadPipelineBuilder {
-        pipeline: static_file(path),
-        mapper,
-    })
-}
-
-/// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Resource`] is present.
-///
-/// # Example
-/// ```
-/// # use std::path::{Path, PathBuf};
-/// # use bevy::prelude::*;
-/// # use moonshine_save::prelude::*;
-///
-/// #[derive(Resource)]
-/// struct LoadRequest {
-///     pub path: PathBuf,
-/// }
-///
-/// impl GetFilePath for LoadRequest {
-///     fn path(&self) -> &Path {
-///         self.path.as_ref()
-///     }
-/// }
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, LoadPlugin))
-///     .add_systems(Update, load(file_from_resource::<LoadRequest>()));
-/// ```
-#[deprecated]
-pub fn load_from_file_on_request<R>() -> SystemConfigs
-where
-    R: GetFilePath + Resource,
-{
-    load(file_from_resource::<R>())
-}
-
-#[deprecated]
-pub fn load_from_file_on_request_with_mapper<R>(mapper: SceneMapper) -> SystemConfigs
-where
-    R: GetFilePath + Resource,
-{
-    load(LoadPipelineBuilder {
-        pipeline: file_from_resource::<R>(),
-        mapper,
-    })
-}
-
-/// A [`LoadPipeline`] like [`load_from_file`] which is only triggered if a [`LoadFromFileRequest`] [`Event`] is sent.
-///
-/// Note: If multiple events are sent in a single update cycle, only the first one is processed.
-#[deprecated]
-pub fn load_from_file_on_event<R>() -> SystemConfigs
-where
-    R: GetFilePath + Event,
-{
-    load(file_from_event::<R>())
-}
-
-// TODO: LoadPipelineBuilder
-#[deprecated]
-pub fn load_from_file_on_event_with_mapper<R>(mapper: SceneMapper) -> SystemConfigs
-where
-    R: GetFilePath + Event,
-{
-    load(LoadPipelineBuilder::<FileFromEvent<R>> {
-        pipeline: file_from_event::<R>(),
-        mapper,
-    })
 }
 
 pub trait LoadPipeline: Pipeline {

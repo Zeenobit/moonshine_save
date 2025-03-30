@@ -39,9 +39,8 @@ use bevy_utils::{
 use moonshine_util::system::*;
 
 use crate::{
-    file_from_event, file_from_resource, static_file, FileFromEvent, FileFromResource, GetFilePath,
-    GetStaticStream, GetStream, MapComponent, Pipeline, SceneMapper, StaticFile, StaticStream,
-    StreamFromEvent, StreamFromResource,
+    FileFromEvent, FileFromResource, GetFilePath, GetStaticStream, GetStream, MapComponent,
+    Pipeline, SceneMapper, StaticFile, StaticStream, StreamFromEvent, StreamFromResource,
 };
 
 /// A [`Plugin`] which configures [`SaveSystem`] in [`PreUpdate`] schedule.
@@ -483,30 +482,6 @@ where
         p.finish(IntoSystem::into_system(system))
             .in_set(SaveSystem::Save)
     }
-
-    #[deprecated(note = "use `into` instead")]
-    pub fn into_file(self, path: impl Into<PathBuf>) -> SystemConfigs {
-        self.into(static_file(path))
-    }
-
-    /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
-    ///
-    /// The save pipeline will only be triggered if a resource of type `R` is present.
-    #[deprecated(note = "use `into` instead")]
-    pub fn into_file_on_request<R: GetFilePath + Resource>(self) -> SystemConfigs {
-        self.into(file_from_resource::<R>())
-    }
-
-    /// Finishes the save pipeline by writing the saved data into a file with its path derived from an event of type `R`.
-    ///
-    /// The save pipeline will only be triggered if an event of type `R` is sent.
-    ///
-    /// # Warning
-    /// If multiple events are sent in a single update cycle, only the first one is processed.
-    #[deprecated(note = "use `into` instead")]
-    pub fn into_file_on_event<R: GetFilePath + Event>(self) -> SystemConfigs {
-        self.into(file_from_event::<R>())
-    }
 }
 
 /// A convenient builder for defining a [`SavePipeline`] with a dynamic [`SaveInput`] which can be provided from any [`System`].
@@ -526,31 +501,6 @@ impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
             .pipe(insert_saved);
         p.finish(IntoSystem::into_system(system))
             .in_set(SaveSystem::Save)
-    }
-
-    /// Finishes the save pipeline by writing the saved data into a file at given `path`.
-    #[deprecated(note = "use `into` instead")]
-    pub fn into_file(self, path: impl Into<PathBuf>) -> SystemConfigs {
-        self.into(static_file(path))
-    }
-
-    /// Finishes the save pipeline by writing the saved data into a file with its path derived from a resource of type `R`.
-    ///
-    /// The save pipeline will only be triggered if a resource of type `R` is present.
-    #[deprecated(note = "use `into` instead")]
-    pub fn into_file_on_request<R: GetFilePath + Resource>(self) -> SystemConfigs {
-        self.into(file_from_resource::<R>())
-    }
-
-    /// Finishes the save pipeline by writing the saved data into a file with its path derived from an event of type `R`.
-    ///
-    /// The save pipeline will only be triggered if an event of type `R` is sent.
-    ///
-    /// # Warning
-    /// If multiple events are sent in a single update cycle, only the first one is processed.
-    #[deprecated(note = "use `into` instead")]
-    pub fn into_file_on_event<R: GetFilePath + Event>(self) -> SystemConfigs {
-        self.into(file_from_event::<R>())
     }
 }
 
