@@ -33,36 +33,50 @@ pub mod prelude {
     pub use crate::{file_from_event, file_from_resource, static_file, GetFilePath};
 }
 
+#[doc(hidden)]
 pub trait GetFilePath {
     fn path(&self) -> &Path;
 }
 
+#[doc(hidden)]
 pub trait GetStaticStream: 'static + Send + Sync {
     type Stream: 'static + Send + Sync;
 
     fn stream() -> Self::Stream;
 }
 
+#[doc(hidden)]
 pub trait GetStream: 'static + Send + Sync {
     type Stream: 'static + Send + Sync;
 
     fn stream(&self) -> Self::Stream;
 }
 
+/// A trait which represents a Save or Load pipeline.
+///
+/// A Save/Load pipeline is just a chain of systems that run in a specific configuration.
+///
+/// Each pipeline has an "endpoint", which may:
+/// - A static file (i.e. a file with a fixed path determined at compile time; this is most often used for tests/debugging),
+/// - A file (i.e. a file with a path determined at runtime; common use case)
+/// - A stream (i.e. a stream of data that is read/written to; specialized use case)
 pub trait Pipeline: 'static + Send + Sync {
     fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
         pipeline.into_configs()
     }
 }
 
+/// Save/Load [`Pipeline`] endpoint for static files.
 pub fn static_file(path: impl Into<PathBuf>) -> StaticFile {
     StaticFile(path.into())
 }
 
+/// Save/Load [`Pipeline`] endpoint for static streams.
 pub fn static_stream<S>(stream: S) -> StaticStream<S> {
     StaticStream(stream)
 }
 
+/// Save/Load [`Pipeline`] endpoint for files from [`Resource`] types.
 pub fn file_from_resource<R>() -> FileFromResource<R>
 where
     R: Resource,
@@ -70,6 +84,7 @@ where
     FileFromResource(PhantomData::<R>)
 }
 
+/// Save/Load [`Pipeline`] endpoint for streams from [`Resource`] types.
 pub fn stream_from_resource<R>() -> StreamFromResource<R>
 where
     R: Resource,
@@ -77,6 +92,7 @@ where
     StreamFromResource(PhantomData::<R>)
 }
 
+/// Save/Load [`Pipeline`] endpoint for files from [`Event`] types.
 pub fn file_from_event<E>() -> FileFromEvent<E>
 where
     E: Event,
@@ -84,6 +100,7 @@ where
     FileFromEvent(PhantomData::<E>)
 }
 
+/// Save/Load [`Pipeline`] endpoint for streams from [`Event`] types.
 pub fn stream_from_event<E>() -> StreamFromEvent<E>
 where
     E: Event,
@@ -91,15 +108,18 @@ where
     StreamFromEvent(PhantomData::<E>)
 }
 
+#[doc(hidden)]
 pub struct StaticFile(PathBuf);
 
 impl Pipeline for StaticFile {}
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct StaticStream<S>(S);
 
 impl<S: 'static + Send + Sync> Pipeline for StaticStream<S> {}
 
+#[doc(hidden)]
 pub struct FileFromResource<R>(PhantomData<R>);
 
 impl<R: Resource> Pipeline for FileFromResource<R> {
@@ -110,6 +130,7 @@ impl<R: Resource> Pipeline for FileFromResource<R> {
     }
 }
 
+#[doc(hidden)]
 pub struct StreamFromResource<R>(PhantomData<R>);
 
 impl<R: Resource> Pipeline for StreamFromResource<R> {
@@ -120,14 +141,27 @@ impl<R: Resource> Pipeline for StreamFromResource<R> {
     }
 }
 
+#[doc(hidden)]
 pub struct FileFromEvent<E>(PhantomData<E>);
 
 impl<E: Event> Pipeline for FileFromEvent<E> {}
 
+#[doc(hidden)]
 pub struct StreamFromEvent<E>(PhantomData<E>);
 
 impl<E: Event> Pipeline for StreamFromEvent<E> {}
 
+/// A trait used for mapping components during a save operation.
+///
+/// # Usage
+///
+/// Component mapping is useful when you wish to serialize an unserializable component.
+///
+/// All component mappers are executed **BEFORE** the serialization step of the Save Pipeline.
+/// When invoked, the given component `T` will be replaced with the output of the mapper for all saved entities.
+/// When the save operation is complete, the original component will be restored.
+///
+/// Keep in mind that this will trigger [change detection](DetectChanges) for the mapped component.
 pub trait MapComponent<T: Component>: 'static + Clone + Send + Sync {
     type Output: Component;
 
@@ -145,6 +179,7 @@ where
     }
 }
 
+/// A collection of component mappers. See [`MapComponent`] for more information.
 #[derive(Default)]
 pub struct SceneMapper(Vec<ComponentMapperDyn>);
 
