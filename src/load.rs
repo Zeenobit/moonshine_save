@@ -349,7 +349,7 @@ pub fn unload<Filter: QueryFilter>(
         .collect();
     for entity in entities {
         if let Ok(entity) = world.get_entity_mut(entity) {
-            entity.despawn_recursive();
+            entity.try_despawn_recursive();
         }
     }
     Ok(saved)
