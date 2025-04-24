@@ -30,12 +30,12 @@ use std::{
 };
 
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{prelude::*, query::QueryFilter, schedule::SystemConfigs};
-use bevy_scene::{DynamicScene, DynamicSceneBuilder, SceneFilter};
-use bevy_utils::{
-    tracing::{error, info, warn},
-    HashSet,
-};
+use bevy_ecs::schedule::ScheduleConfigs;
+use bevy_ecs::system::ScheduleSystem;
+use bevy_ecs::{prelude::*, query::QueryFilter};
+use bevy_log::prelude::*;
+use bevy_platform::collections::HashSet;
+use bevy_scene::{ron, DynamicScene, DynamicSceneBuilder, SceneFilter};
 use moonshine_util::system::*;
 
 use crate::{
@@ -469,7 +469,7 @@ where
         self
     }
 
-    pub fn into(self, p: impl SavePipeline) -> SystemConfigs {
+    pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
         let Self { input, .. } = self;
         let system = (move || input.clone())
             .pipe(filter_entities::<F>)
@@ -492,7 +492,7 @@ pub struct DynamicSavePipelineBuilder<S: System<In = (), Out = SaveInput>> {
 }
 
 impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
-    pub fn into(self, p: impl SavePipeline) -> SystemConfigs {
+    pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
         let Self { input_source, .. } = self;
         let system = input_source.pipe(map_scene).pipe(save_scene);
         let system = p

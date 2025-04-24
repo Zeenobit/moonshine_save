@@ -37,10 +37,11 @@ use std::path::PathBuf;
 
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::entity::EntityHashMap;
-use bevy_ecs::{prelude::*, query::QueryFilter, schedule::SystemConfigs};
-use bevy_hierarchy::DespawnRecursiveExt;
-use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
-use bevy_utils::tracing::{error, info, warn};
+use bevy_ecs::schedule::ScheduleConfigs;
+use bevy_ecs::system::ScheduleSystem;
+use bevy_ecs::{prelude::*, query::QueryFilter};
+use bevy_log::prelude::*;
+use bevy_scene::{ron, serde::SceneDeserializer, SceneSpawnError};
 use moonshine_util::system::*;
 use serde::de::DeserializeSeed;
 
@@ -217,7 +218,7 @@ where
     }
 }
 
-pub fn load(p: impl LoadPipeline) -> SystemConfigs {
+pub fn load(p: impl LoadPipeline) -> ScheduleConfigs<ScheduleSystem> {
     let system = p
         .load()
         .pipe(unload::<DefaultUnloadFilter>)
@@ -256,7 +257,7 @@ impl<P> LoadPipelineBuilder<P> {
 }
 
 impl<P: Pipeline> Pipeline for LoadPipelineBuilder<P> {
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         self.pipeline.finish(pipeline)
     }
 }
@@ -349,7 +350,7 @@ pub fn unload<Filter: QueryFilter>(
         .collect();
     for entity in entities {
         if let Ok(entity) = world.get_entity_mut(entity) {
-            entity.try_despawn_recursive();
+            entity.despawn();
         }
     }
     Ok(saved)
@@ -491,7 +492,7 @@ mod tests {
         assert!(!world.contains_resource::<Loaded>());
         assert!(world
             .query_filtered::<(), With<Dummy>>()
-            .get_single(world)
+            .single(world)
             .is_ok());
 
         remove_file(PATH).unwrap();
@@ -522,7 +523,7 @@ mod tests {
         assert!(!world.contains_resource::<Loaded>());
         assert!(world
             .query_filtered::<(), With<Dummy>>()
-            .get_single(world)
+            .single(world)
             .is_ok());
 
         remove_file(PATH).unwrap();
@@ -552,7 +553,7 @@ mod tests {
         let world = app.world_mut();
         assert!(world
             .query_filtered::<(), With<Dummy>>()
-            .get_single(world)
+            .single(world)
             .is_ok());
 
         remove_file(PATH).unwrap();
@@ -584,7 +585,7 @@ mod tests {
         let world = app.world_mut();
         assert!(world
             .query_filtered::<(), With<Dummy>>()
-            .get_single(world)
+            .single(world)
             .is_ok());
 
         remove_file(PATH).unwrap();
@@ -615,7 +616,7 @@ mod tests {
         let world = app.world_mut();
         assert!(world
             .query_filtered::<(), With<Dummy>>()
-            .get_single(world)
+            .single(world)
             .is_ok());
 
         remove_file(PATH).unwrap();
@@ -648,7 +649,7 @@ mod tests {
         let world = app.world_mut();
         assert!(world
             .query_filtered::<(), With<Dummy>>()
-            .get_single(world)
+            .single(world)
             .is_ok());
 
         remove_file(PATH).unwrap();
@@ -675,11 +676,11 @@ mod tests {
         let world = app.world_mut();
         assert!(world
             .query_filtered::<(), With<Foo>>()
-            .get_single(world)
+            .single(world)
             .is_ok());
         assert!(world
             .query_filtered::<(), With<Dummy>>()
-            .get_single(world)
+            .single(world)
             .is_err());
 
         remove_file(PATH).unwrap();

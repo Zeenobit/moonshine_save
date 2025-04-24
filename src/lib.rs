@@ -5,7 +5,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use bevy_ecs::{prelude::*, schedule::SystemConfigs};
+use bevy_ecs::prelude::*;
+use bevy_ecs::schedule::ScheduleConfigs;
+use bevy_ecs::system::ScheduleSystem;
 use moonshine_util::system::{has_resource, remove_resource};
 
 pub mod load;
@@ -61,7 +63,7 @@ pub trait GetStream: 'static + Send + Sync {
 /// - A file (i.e. a file with a path determined at runtime; common use case)
 /// - A stream (i.e. a stream of data that is read/written to; specialized use case)
 pub trait Pipeline: 'static + Send + Sync {
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         pipeline.into_configs()
     }
 }
@@ -123,7 +125,7 @@ impl<S: 'static + Send + Sync> Pipeline for StaticStream<S> {}
 pub struct FileFromResource<R>(PhantomData<R>);
 
 impl<R: Resource> Pipeline for FileFromResource<R> {
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         pipeline
             .pipe(remove_resource::<R>)
             .run_if(has_resource::<R>)
@@ -134,7 +136,7 @@ impl<R: Resource> Pipeline for FileFromResource<R> {
 pub struct StreamFromResource<R>(PhantomData<R>);
 
 impl<R: Resource> Pipeline for StreamFromResource<R> {
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> SystemConfigs {
+    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         pipeline
             .pipe(remove_resource::<R>)
             .run_if(has_resource::<R>)

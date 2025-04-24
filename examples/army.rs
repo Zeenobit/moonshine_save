@@ -81,7 +81,7 @@ struct SoldierWeapon(Option<Entity>);
 impl MapEntities for SoldierWeapon {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         if let Some(weapon) = self.0.as_mut() {
-            *weapon = entity_mapper.map_entity(*weapon);
+            *weapon = entity_mapper.get_mapped(*weapon);
         }
     }
 }
@@ -168,53 +168,52 @@ fn setup(mut commands: Commands) {
             ));
 
             // Buttons Row
-            root.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                ..default()
-            })
-            .with_children(|parent| {
-                spawn_button(parent, "SPAWN MELEE", AddMeleeButton);
-                spawn_button(parent, "SPAWN RANGED", AddRangedButton);
-                spawn_space(parent, Val::Px(20.), Val::Auto);
-                spawn_button(parent, "SAVE", SaveButton);
-                spawn_button(parent, "LOAD", LoadButton);
-            });
-        });
-}
-
-fn spawn_button(parent: &mut ChildBuilder, value: impl Into<String>, bundle: impl Bundle) {
-    parent
-        .spawn((
-            bundle,
-            (
+            root.spawn((
                 Node {
-                    margin: UiRect::all(Val::Px(5.)),
-                    padding: UiRect::new(Val::Px(10.), Val::Px(10.), Val::Px(5.), Val::Px(5.)),
+                    flex_direction: FlexDirection::Row,
                     ..default()
                 },
-                Button,
-            ),
-            BackgroundColor(bevy::color::palettes::css::DARK_GRAY.into()),
-        ))
-        .with_children(|fly_button| {
-            fly_button.spawn((
-                Node { ..default() },
-                Text::new(value.into()),
-                TextFont {
-                    font_size: 20.,
-                    ..default()
-                },
-                TextColor(Color::WHITE),
+                children![
+                    button("SPAWN MELEE", AddMeleeButton),
+                    button("SPAWN RANGED", AddRangedButton),
+                    space(Val::Px(20.), Val::Auto),
+                    button("SAVE", SaveButton),
+                    button("LOAD", LoadButton),
+                ],
             ));
         });
 }
 
-fn spawn_space(parent: &mut ChildBuilder, width: Val, height: Val) {
-    parent.spawn(Node {
+fn button(value: impl Into<String>, bundle: impl Bundle) -> impl Bundle {
+    (
+        bundle,
+        (
+            Node {
+                margin: UiRect::all(Val::Px(5.)),
+                padding: UiRect::new(Val::Px(10.), Val::Px(10.), Val::Px(5.), Val::Px(5.)),
+                ..default()
+            },
+            Button,
+        ),
+        BackgroundColor(bevy::color::palettes::css::DARK_GRAY.into()),
+        children![(
+            Node { ..default() },
+            Text::new(value.into()),
+            TextFont {
+                font_size: 20.,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+        )],
+    )
+}
+
+fn space(width: Val, height: Val) -> impl Bundle {
+    Node {
         width,
         height,
         ..default()
-    });
+    }
 }
 
 /// Groups soldiers by the kind of their equipped weapons and displays the results in text.
@@ -239,7 +238,8 @@ fn update_text(
         .filter(|weapon_kind| matches!(weapon_kind, Ranged))
         .count();
 
-    army_query.single_mut().0 = format!("Soldiers: {melee_count} Melee, {ranged_count} Ranged");
+    army_query.single_mut().unwrap().0 =
+        format!("Soldiers: {melee_count} Melee, {ranged_count} Ranged");
 }
 
 const DEFAULT_BUTTON_COLOR: Color = Color::srgb(0.15, 0.15, 0.15);
@@ -269,7 +269,7 @@ fn add_ranged_button_clicked(
     query: Query<&Interaction, (With<AddRangedButton>, Changed<Interaction>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Pressed) = query.get_single() {
+    if let Ok(Interaction::Pressed) = query.single() {
         let weapon = commands.spawn(WeaponBundle::new(Ranged)).id();
         commands.spawn(SoldierBundle::new(weapon));
     }
@@ -279,7 +279,7 @@ fn add_melee_button_clicked(
     query: Query<&Interaction, (With<AddMeleeButton>, Changed<Interaction>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Pressed) = query.get_single() {
+    if let Ok(Interaction::Pressed) = query.single() {
         let weapon = commands.spawn(WeaponBundle::new(Melee)).id();
         commands.spawn(SoldierBundle::new(weapon));
     }
@@ -289,7 +289,7 @@ fn save_button_clicked(
     query: Query<&Interaction, (With<SaveButton>, Changed<Interaction>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Pressed) = query.get_single() {
+    if let Ok(Interaction::Pressed) = query.single() {
         commands.insert_resource(SaveRequest);
     }
 }
@@ -298,7 +298,7 @@ fn load_button_clicked(
     query: Query<&Interaction, (With<LoadButton>, Changed<Interaction>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Pressed) = query.get_single() {
+    if let Ok(Interaction::Pressed) = query.single() {
         commands.insert_resource(LoadRequest);
     }
 }

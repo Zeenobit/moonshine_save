@@ -38,7 +38,7 @@ impl FromWorld for FooBar {
 
 impl MapEntities for FooBar {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 
@@ -70,8 +70,8 @@ fn main() {
 
         // Check pre-conditions
         let world = app.world_mut();
-        assert_eq!(world.query::<&Foo>().single(world).0, 42);
-        assert_eq!(world.query::<&FooBar>().single(world).0, bar);
+        assert_eq!(world.query::<&Foo>().single(world).unwrap().0, 42);
+        assert_eq!(world.query::<&FooBar>().single(world).unwrap().0, bar);
         assert!(world.entity(bar).contains::<Save>());
 
         // Ensure file was written to disk
@@ -89,10 +89,13 @@ fn main() {
         app.update();
 
         let world = app.world_mut();
-        let bar = world.query_filtered::<Entity, With<Bar>>().single(world);
+        let bar = world
+            .query_filtered::<Entity, With<Bar>>()
+            .single(world)
+            .unwrap();
 
-        assert_eq!(world.query::<&Foo>().single(world).0, 42);
-        assert_eq!(world.query::<&FooBar>().single(world).0, bar);
+        assert_eq!(world.query::<&Foo>().single(world).unwrap().0, 42);
+        assert_eq!(world.query::<&FooBar>().single(world).unwrap().0, bar);
         assert!(world.entity(bar).contains::<Save>());
 
         fs::remove_file(SAVE_PATH).unwrap();

@@ -32,7 +32,7 @@ fn main() {
         let children = world.get::<Children>(entity).unwrap();
         assert_eq!(children.iter().count(), 2);
         for child in children.iter() {
-            let parent = world.get::<Parent>(*child).unwrap().get();
+            let parent = world.get::<ChildOf>(child).unwrap().parent();
             assert_eq!(parent, entity);
         }
     }
@@ -48,11 +48,11 @@ fn main() {
         app.update();
 
         let world = app.world_mut();
-        let (_, children) = world.query::<(Entity, &Children)>().single(world);
+        let (_, children) = world.query::<(Entity, &Children)>().single(world).unwrap();
         assert_eq!(children.iter().count(), 2); // !!! DANGER: One of the entities must be broken
         let mut found_broken = false;
         for child in children.iter() {
-            found_broken |= world.get::<Name>(*child).is_none();
+            found_broken |= world.get::<Name>(child).is_none();
         }
         assert!(found_broken);
     }

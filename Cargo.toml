@@ -11,16 +11,16 @@ homepage = "https://github.com/Zeenobit/moonshine_save"
 repository = "https://github.com/Zeenobit/moonshine_save"
 
 [dependencies]
-ron = "0.8.0"
 serde = "1.0.*"
-bevy_app = "0.15.*"
-bevy_ecs = "0.15.*"
-bevy_hierarchy = "0.15.*"
-bevy_reflect = "0.15.*"
-bevy_scene = "0.15.*"
-bevy_utils = "0.15.*"
+bevy_app = "0.16.*"
+bevy_ecs = "0.16.*"
+bevy_log = "0.16.*"
+bevy_platform = "0.16.*"
+bevy_reflect = "0.16.*"
+bevy_scene = "0.16.*"
+bevy_utils = "0.16.*"
 moonshine-util = { version = "0.2.6", path = "../util" }
 
 [dev-dependencies]
-bevy = "0.15.*"
+bevy = "0.16.*"
 moonshine-check = { version = "0.1.*", path = "../check" }

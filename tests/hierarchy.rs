@@ -7,7 +7,7 @@ const SAVE_PATH: &str = "test_hierarchy.ron";
 
 fn app() -> App {
     let mut app = App::new();
-    app.add_plugins((MinimalPlugins, HierarchyPlugin));
+    app.add_plugins(MinimalPlugins);
     app
 }
 
@@ -32,7 +32,7 @@ fn main() {
         let children = world.get::<Children>(entity).unwrap();
         assert_eq!(children.iter().count(), 2);
         for child in children.iter() {
-            let parent = world.get::<Parent>(*child).unwrap().get();
+            let parent = world.get::<ChildOf>(child).unwrap().0;
             assert_eq!(parent, entity);
         }
     }
@@ -54,10 +54,10 @@ fn main() {
         app.update();
 
         let world = app.world_mut();
-        let (entity, children) = world.query::<(Entity, &Children)>().single(world);
+        let (entity, children) = world.query::<(Entity, &Children)>().single(world).unwrap();
         assert_eq!(children.iter().count(), 2);
         for child in children.iter() {
-            let parent = world.get::<Parent>(*child).unwrap().get();
+            let parent = world.get::<ChildOf>(child).unwrap().0;
             assert_eq!(parent, entity);
         }
     }

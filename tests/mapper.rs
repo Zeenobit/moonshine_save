@@ -69,7 +69,7 @@ fn main() {
 
         // Check pre-conditions
         let world = app.world_mut();
-        assert_eq!(world.query::<&Foo>().single(world).0.secret(), 42);
+        assert_eq!(world.query::<&Foo>().single(world).unwrap().0.secret(), 42);
         assert!(world.entity(entity).contains::<Bar>());
         assert!(world.entity(entity).contains::<Save>());
         assert!(!world.entity(entity).contains::<SerializedFoo>());
@@ -94,9 +94,12 @@ fn main() {
         app.update();
 
         let world = app.world_mut();
-        let entity = world.query_filtered::<Entity, With<Bar>>().single(world);
+        let entity = world
+            .query_filtered::<Entity, With<Bar>>()
+            .single(world)
+            .unwrap();
 
-        assert_eq!(world.query::<&Foo>().single(world).0.secret(), 42);
+        assert_eq!(world.query::<&Foo>().single(world).unwrap().0.secret(), 42);
         assert!(world.entity(entity).contains::<Bar>());
         assert!(world.entity(entity).contains::<Save>());
         assert!(!world.entity(entity).contains::<SerializedFoo>());
