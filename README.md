@@ -45,7 +45,7 @@ fn should_load() -> bool {
 
 ## Philosophy
 
-The main design goal of this crate is to use concepts borrowed from MVC (Model-View-Controller) architecture to separate the aesthetic elements of the game (the game "view") from its logical and saved state (the game "model").
+The main design goal of this crate is to use concepts inspired from MVC (Model-View-Controller) architecture to separate the aesthetic elements of the game (the game "view") from its logical and saved state (the game "model"). This allows the application to treat the saved data as the singular source of truth for the entire game state.
 
 To use this crate as intended, you should design your game logic with this separation in mind:
 
@@ -62,20 +62,16 @@ To use this crate as intended, you should design your game logic with this separ
 For example, suppose we want to represent a player character in a game.
 Various components are used to store the logical state of the player, such as `Health`, `Inventory`, or `Weapon`.
 
-Each player is represented using a 2D `SpriteBundle`, which presents the current visual state of the player.
+Each player is represented using a 2D sprite, which presents the current visual state of the player.
 
-Traditionally, we might have used a single entity (or a hierarchy) to reppresent the player. This entity would carry all the logical components, such as `Health`, in addition to the `SpriteBundle`:
+Traditionally, we might have used a single entity (or a hierarchy) to reppresent the player. This entity would carry all the logical components, such as `Health`, in addition to its visual data, such as `Sprite`:
 
 ```rust
 use bevy::prelude::*;
 
-#[derive(Bundle)]
-struct PlayerBundle {
-    health: Health,
-    inventory: Inventory,
-    weapon: Weapon,
-    sprite: Sprite,
-}
+#[derive(Component)]
+#[require(Health, Inventory, Weapon, Sprite)] // <-- Model + View
+struct Player;
 
 #[derive(Component)]
 struct Health;
@@ -93,13 +89,9 @@ An arguably better approach would be to store this data in a completely separate
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
 
-#[derive(Bundle)]
-struct PlayerBundle {
-    player: Player,
-    health: Health,
-    inventory: Inventory,
-    weapon: Weapon,
-}
+#[derive(Component)]
+#[require(Health, Inventory, Weapon)] // <-- Model
+struct Player;
 
 #[derive(Component)]
 struct Player;
@@ -113,23 +105,18 @@ struct Inventory;
 #[derive(Component)]
 struct Weapon;
 
-#[derive(Bundle)]
-struct PlayerViewBundle {
-    view: PlayerView,
-    sprite: SpriteBundle,
-}
-
 #[derive(Component)]
+#[require(Sprite)] // <-- View
 struct PlayerView {
     player: Entity
 }
 
 fn spawn_player_sprite(mut commands: Commands, query: Query<Entity, Added<Player>>) {
     for player in query.iter() {
-        commands.spawn(PlayerViewBundle {
+        commands.spawn((
             view: PlayerView { player },
             sprite: todo!(),
-        });
+        ));
     }
 }
 ```
@@ -141,36 +128,29 @@ This approach may seem verbose at first, but it has several advantages:
 
 Ultimately, it is up to you to decide if the additional complexity of this separation is beneficial to your project or not.
 
-This crate is not intended to be a general purpose save solution by default. However, another design goal of this crate is maximum customizability.
+This crate is not intended to be a general purpose save solution by default. However, it is also designed to be highly flexible.
 
-This crate provides some standard and commonly used save/load pipelines that should be sufficient for most applications based on the architecture outlined above. These pipelines are composed of smaller sub-systems.
+There are some standard and commonly used save/load pipelines that should be sufficient for most applications based on the architecture outlined above. These pipelines are composed of smaller sub-systems.
 
-These sub-systems may be used in any other desired configuration and combined with other systems to highly specialized pipelines.
+These sub-systems may be used in any other desired configuration and combined with other systems to create highly specialized pipelines.
 
 ## Usage
 
 ### Save Pipeline
 
-In order to save game state, start by marking entities which must be saved using the [`Save`] marker. This is a component which can be added to bundles or inserted into entities like any other component:
+To save the game state, start by marking entities which must be saved using the [`Save`] marker. This is a component which can be added to bundles, declared as a requirement or inserted into entities like any other component:
 ```rust
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
 
 #[derive(Component, Default, Reflect)]
 #[reflect(Component)]
+#[require(Name, Level, Save)] // <-- Add Save Marker
 struct Player;
 
 #[derive(Component, Default, Reflect)]
 #[reflect(Component)]
 struct Level(u32);
-
-#[derive(Bundle)]
-struct PlayerBundle {
-    player: Player,
-    level: Level,
-    name: Name,
-    save: Save, // <-- Add Save Marker
-}
 ```
 > ⚠️ Saved components must implement [`Reflect`](https://docs.rs/bevy/latest/bevy/reflect/trait.Reflect.html) and be [registered types](https://docs.rs/bevy/latest/bevy/app/struct.App.html#method.register_type).
 
@@ -191,11 +171,11 @@ app.add_systems(PreUpdate, save_default().into_file("saved.ron"));
 
 Alternative, you may also use [`save_all`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_all.html) to save all entities and [`save`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save.html) to provide a custom [`QueryFilter`](https://docs.rs/bevy/latest/bevy/ecs/query/trait.QueryFilter.html) for your saved entities.
 
-There is also [`save_all_with`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_all_with.html) and [`save_with`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_with.html) to be used with [`SaveFilter`](https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SaveFilter.html).
+There is also [`save_all_with`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_all_with.html) and [`save_with`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_with.html) to be used with a custom, dynamic [`SaveFilter`](https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SaveFilter.html).
 
-When used on its own, a pipeline would save the world state on every application update cycle.
+When used on its own, a pipeline would save the world state on every call.
 This is often undesirable because you typically want the save process to happen at specific times during runtime.
-To do this, you can combine the save pipeline with [`.run_if`](https://docs.rs/bevy/latest/bevy/ecs/schedule/trait.IntoSystemConfigs.html#method.run_if):
+To solve this, you can combine the save pipeline with [`.run_if`](https://docs.rs/bevy/latest/bevy/ecs/schedule/trait.IntoSystemConfigs.html#method.run_if):
 
 ```rust,ignore
 app.add_systems(PreUpdate,
@@ -207,6 +187,8 @@ fn should_save( /* ... */ ) -> bool {
     todo!()
 }
 ```
+
+All save operations happen in the [`SaveSystem`](https://docs.rs/moonshine-save/latest/moonshine_save/save/enum.SaveSystem.html) set during [`PreUpdate`](https://docs.rs/bevy/latest/bevy/app/struct.PreUpdate.html).
 
 #### Saving Resources
 
@@ -291,6 +273,10 @@ fn should_load( /* ... */ ) -> bool {
     todo!()
 }
 ```
+
+All load operations happen in the [`LoadSystem`](https://docs.rs/moonshine-save/latest/moonshine_save/load/enum.LoadSystem.html) set during [`PreUpdate`](https://docs.rs/bevy/latest/bevy/app/struct.PreUpdate.html).
+
+Note that loading always happens before saving. So if there are simultaneous load and save requests, the load request will always be processed first.
 
 ## Example
 
@@ -398,58 +384,80 @@ fn trigger_load(mut events: EventWriter<LoadRequest>) {
 
 ## Versions, Backwards Compatibility and Validation
 
-On its own, this crate does not support backwards compatibility, versioning, or validation.
+This crate does not support backwards compatibility, versioning, or validation.
 
-However, you may want to use [✅ Moonshine Check](https://github.com/Zeenobit/moonshine_check) to solve these problems in a generic way.
+This is because supporting these should be trivial using [Required Components](https://docs.rs/bevy/latest/bevy/ecs/component/trait.Component.html#required-components) and [Component Hooks](https://docs.rs/bevy/latest/bevy/ecs/component/trait.Component.html#adding-components-hooks).
 
-Using [`check`], you may validate your saved data after load to deal with any corrupt or invalid entities:
-```rust,ignore
-use moonshine_check::prelude::*;
+Here is a simple example of how to "upgrade" a component from saved data:
 
-// Despawn (recursively) any entity of kind `A` which spawns without a `B` component
-app.check::<A, Without<B>>(purge());
-```
+```rust
+use bevy::prelude::*;
+use moonshine_save::prelude::*;
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::DeferredWorld;
 
-You may also use this to update your save data to a new version.
-
-For example, suppose we had some component `B` at some point in time:
-```rust,ignore
-#use bevy::prelude::*;
-#use moonshine_save::prelude::*;
-#[derive(Component, Reflect)]
+#[derive(Component, Default, Reflect)]
 #[reflect(Component)]
-struct B {
-    f: f32,
-    b: bool,
-}
-```
+struct Old;
 
-Now, we want to refactor this component with some new fields. In order to keep your saved data backwards compatible, create a new version of your component with a new name. Then use [`check`] to upgrade the component after load:
-```rust,ignore
-use moonshine_check::prelude::*;
-
-#[derive(Component, Reflect)]
+#[derive(Component, Default, Reflect)]
 #[reflect(Component)]
-struct B2 {
-    i: i32,
-    v: Vec3,
-}
+#[component(on_insert = Self::upgrade)] // <-- Upgrade on insert
+struct New;
 
-impl B2 {
-    fn upgrade(old: &B) -> Self {
-        todo!()
+impl New {
+    fn upgrade(mut world: DeferredWorld, ctx: HookContext) {
+        let entity = ctx.entity;
+        if world.entity(entity).contains::<Old>() {
+            world.commands().queue(move |world: &mut World| {
+                world.entity_mut(entity).insert(New).remove::<Old>();
+            })
+        }
     }
 }
-
-app.check::<B, ()>(repair_replace_with(B2::upgrade));
 ```
 
-> [!NOTE]
-> For now, it is recommended to keep older versions of upgraded components with the same old name in your application executable.
-> While this creates some bloat, it keeps your application fully backwards compatible for all previous save versions.
-> 
-> This behavior may be improved in future to reduce this bloat with the help of "save file processors" which could potentially rename/modify serialized components before deserialization.
+You can also create specialized validator components to ensure validity:
 
+```rust
+use bevy::prelude::*;
+use moonshine_save::prelude::*;
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::DeferredWorld;
+
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+#[require(ValidNew)] // <-- Require validation
+struct New;
+
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+#[component(on_insert = Self::validate)] // <-- Validate on insert
+struct ValidNew;
+
+impl ValidNew {
+    fn validate(mut world: DeferredWorld, ctx: HookContext) {
+        // ...
+    }
+}
+```
+
+## Installation
+
+Add the following to your `Cargo.toml`:
+
+```toml
+[dependencies]
+moonshine-save = "0.4.0"
+```
+
+This crate is also included as part of [🍸 Moonshine Core](https://github.com/Zeenobit/moonshine_core).
+
+## Support
+
+Please [post an issue](https://github.com/Zeenobit/moonshine_save/issues/new) for any bugs, questions, or suggestions.
+
+You may also contact me on the official [Bevy Discord](https://discord.gg/bevy) server as **@Zeenobit**.
 
 [`World`]:https://docs.rs/bevy/latest/bevy/ecs/world/struct.World.html
 [`DynamicScene`]:https://docs.rs/bevy/latest/bevy/prelude/struct.DynamicScene.html
@@ -458,9 +466,3 @@ app.check::<B, ()>(repair_replace_with(B2::upgrade));
 [`SavePlugin`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SavePlugin.html
 [`SavePipeline`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/type.SavePipeline.html
 [`check`]:https://docs.rs/moonshine-check/latest/moonshine_check/trait.Check.html#tymethod.check
-
-## Support
-
-Please [post an issue](https://github.com/Zeenobit/moonshine_save/issues/new) for any bugs, questions, or suggestions.
-
-You may also contact me on the official [Bevy Discord](https://discord.gg/bevy) server as **@Zeenobit**.
