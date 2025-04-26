@@ -75,7 +75,9 @@ pub enum SaveSystem {
 /// A [`Resource`] which contains the saved [`World`] data during [`SaveSystem::PostSave`].
 #[derive(Resource)]
 pub struct Saved {
+    /// The saved [`DynamicScene`] to be serialized.
     pub scene: DynamicScene,
+    /// The [`SceneMapper`] used for the save process.
     pub mapper: SceneMapper,
 }
 
@@ -83,9 +85,12 @@ pub struct Saved {
 #[derive(Component, Default, Clone)]
 pub struct Save;
 
+/// An error which indicates a failure during the save process.
 #[derive(Debug)]
 pub enum SaveError {
+    /// Indicates a failure during serialization. Check to ensure all saved components are serializable.
     Ron(ron::Error),
+    /// Indicates a failure to write saved data into the destination.
     Io(io::Error),
 }
 
@@ -101,63 +106,69 @@ impl From<io::Error> for SaveError {
     }
 }
 
+/// A filter for selecting which [`Entity`]s within a [`World`].
 #[derive(Default, Clone)]
 pub enum EntityFilter {
+    /// Select all entities.
     #[default]
     Any,
+    /// Select only the specified entities.
     Allow(HashSet<Entity>),
+    /// Select all entities except the specified ones.
     Block(HashSet<Entity>),
 }
 
 impl EntityFilter {
+    /// Creates a new [`EntityFilter`] which allows all entities.
     pub fn any() -> Self {
         Self::Any
     }
 
+    /// Creates a new [`EntityFilter`] which allows only the specified entities.
     pub fn allow(entities: impl IntoIterator<Item = Entity>) -> Self {
         Self::Allow(entities.into_iter().collect())
     }
 
+    /// Creates a new [`EntityFilter`] which blocks the specified entities.
     pub fn block(entities: impl IntoIterator<Item = Entity>) -> Self {
         Self::Block(entities.into_iter().collect())
     }
 }
 
+/// Parameters for the save pipeline.
 #[derive(Clone)]
 pub struct SaveInput {
+    /// A filter for selecting which entities should be saved.
+    ///
+    /// By default, all entities are selected.
     pub entities: EntityFilter,
+    /// A filter for selecting which resources should be saved.
+    ///
+    /// By default, no resources are selected. Most Bevy resources are not safely serializable.
     pub resources: SceneFilter,
+    /// A filter for selecting which components should be saved.
+    ///
+    /// By default, all serializable components are selected.
     pub components: SceneFilter,
+    /// A mapper for transforming components during the save process.
+    ///
+    /// See [`MapComponent`] for more information.
     pub mapper: SceneMapper,
 }
 
 impl Default for SaveInput {
     fn default() -> Self {
         SaveInput {
-            // By default, select all entities.
             entities: EntityFilter::any(),
-            // By default, save all components on all saved entities.
             components: SceneFilter::allow_all(),
-            // By default, do not save any resources. Most Bevy resources are not safely serializable.
             resources: SceneFilter::deny_all(),
-            // By default, map nothing.
             mapper: SceneMapper::default(),
         }
     }
 }
 
-pub fn filter<F: QueryFilter>(entities: Query<Entity, F>) -> SaveInput {
-    SaveInput {
-        entities: EntityFilter::allow(&entities),
-        // WARNING:
-        // Do not want to save any Bevy resources by default.
-        // They may be serializable, but not deserializable.
-        resources: SceneFilter::deny_all(),
-        ..Default::default()
-    }
-}
-
-pub fn filter_entities<F: 'static + QueryFilter>(
+/// Creates a [`SaveInput`] which selects all entities which match the given [`QueryFilter`] `F`.
+pub fn filter<F: 'static + QueryFilter>(
     In(mut input): In<SaveInput>,
     entities: Query<Entity, F>,
 ) -> SaveInput {
@@ -165,6 +176,7 @@ pub fn filter_entities<F: 'static + QueryFilter>(
     input
 }
 
+/// A [`System`] which applies the [`SceneMapper`] to all entities in the world.
 pub fn map_scene(In(mut input): In<SaveInput>, world: &mut World) -> SaveInput {
     if !input.mapper.is_empty() {
         match &input.entities {
@@ -252,6 +264,7 @@ pub fn write_file(
     Ok(saved)
 }
 
+/// A [`System`] which writes [`Saved`] data into a stream.
 pub fn write_stream<S: Write>(
     In((mut stream, saved)): In<(S, Saved)>,
     type_registry: Res<AppTypeRegistry>,
@@ -262,6 +275,7 @@ pub fn write_stream<S: Write>(
     Ok(saved)
 }
 
+/// A [`System`] which undoes the changes from a [`SceneMapper`] for all entities in the world.
 pub fn unmap_scene(
     In(mut result): In<Result<Saved, SaveError>>,
     world: &mut World,
@@ -296,7 +310,7 @@ where
     (path, saved)
 }
 
-/// A [`System`] which extracts the path from a [`SaveIntoFileRequest`] [`Event`].
+/// A [`System`] which extracts the path from an [`Event`].
 ///
 /// # Warning
 ///
@@ -316,6 +330,7 @@ where
     (path, saved)
 }
 
+/// A [`System`] which extracts a [`Stream`] from an [`Event`].
 pub fn get_stream_from_event<E>(
     In(saved): In<Saved>,
     mut events: EventReader<E>,
@@ -464,15 +479,19 @@ where
         self
     }
 
+    /// Adds a component mapper to the save pipeline.
+    ///
+    /// See [`MapComponent`] for more details.
     pub fn map_component<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
         self.input.mapper = self.input.mapper.map(m);
         self
     }
 
+    /// Finalizes the save pipeline and returns it as a set of [`ScheduleConfigs`] to be inserted into a [`Schedule`].
     pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
         let Self { input, .. } = self;
         let system = (move || input.clone())
-            .pipe(filter_entities::<F>)
+            .pipe(filter::<F>)
             .pipe(map_scene)
             .pipe(save_scene);
         let system = p
@@ -492,6 +511,7 @@ pub struct DynamicSavePipelineBuilder<S: System<In = (), Out = SaveInput>> {
 }
 
 impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
+    /// Finalizes the save pipeline and returns it as a set of [`ScheduleConfigs`] to be inserted into a [`Schedule`].
     pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
         let Self { input_source, .. } = self;
         let system = input_source.pipe(map_scene).pipe(save_scene);
@@ -591,7 +611,9 @@ pub fn save_all_with<S: IntoSystem<(), SaveInput, M>, M>(
     }
 }
 
+/// A pipeline of systems to handle the save process.
 pub trait SavePipeline: Pipeline {
+    #[doc(hidden)]
     fn save(
         &self,
         system: impl System<In = (), Out = Saved>,

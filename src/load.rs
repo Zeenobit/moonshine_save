@@ -128,14 +128,20 @@ pub struct Unload;
 /// A [`Resource`] which contains the loaded entity map. See [`FromLoaded`] for usage.
 #[derive(Resource)]
 pub struct Loaded {
+    /// The map of all loaded entities and their new entity IDs.
     pub entity_map: EntityHashMap<Entity>,
 }
 
+/// An error which indicates a failure during the load process.
 #[derive(Debug)]
 pub enum LoadError {
+    /// Indicates a failure to access the file.
     Io(io::Error),
+    /// Indicates a RON syntax error.
     De(ron::de::SpannedError),
+    /// Indicates a deserialization error.
     Ron(ron::Error),
+    /// Indicates a failure to reconstruct the world from the loaded data.
     Scene(SceneSpawnError),
 }
 
@@ -163,7 +169,9 @@ impl From<SceneSpawnError> for LoadError {
     }
 }
 
+/// A pipeline of systems to handle the load process.
 pub trait LoadPipeline: Pipeline {
+    #[doc(hidden)]
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>>;
 }
 
@@ -218,6 +226,7 @@ where
     }
 }
 
+/// Converts a [`LoadPipeline`] into a [`ScheduleConfigs`] to be installed a [`Schedule`].
 pub fn load(p: impl LoadPipeline) -> ScheduleConfigs<ScheduleSystem> {
     let system = p
         .load()
@@ -229,7 +238,11 @@ pub fn load(p: impl LoadPipeline) -> ScheduleConfigs<ScheduleSystem> {
         .in_set(LoadSystem::Load)
 }
 
+/// Trait used to add [component mappers][`MapComponent`] to a [`LoadPipeline`] and create a [`LoadPipelineBuilder`]`.
 pub trait LoadMapComponent: Sized {
+    /// Adds a component mapper to the pipeline.
+    ///
+    /// See [`MapComponent`] for more details.
     fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self>;
 }
 
@@ -242,12 +255,19 @@ impl<P: Pipeline> LoadMapComponent for P {
     }
 }
 
+/// A convenient builder for defining a [`LoadPipeline`].
+///
+/// This type should not be created directly. Instead, use functions like [`static_file`](crate::static_file)
+/// or [`file_from_resource`](crate::file_from_resource) to construct a [`LoadPipeline`] and pass it into [`load`].
 pub struct LoadPipelineBuilder<P> {
     pipeline: P,
     mapper: SceneMapper,
 }
 
 impl<P> LoadPipelineBuilder<P> {
+    /// Adds a component mapper to the pipeline.
+    ///
+    /// See [`MapComponent`] for more details.
     pub fn map_component<U: Component>(self, m: impl MapComponent<U>) -> Self {
         Self {
             mapper: self.mapper.map(m),
@@ -317,6 +337,7 @@ pub fn read_file(
     })
 }
 
+/// A [`System`] which reads [`Saved`] data from a stream.
 pub fn read_stream<S: Read>(
     In(mut stream): In<S>,
     type_registry: Res<AppTypeRegistry>,
@@ -336,6 +357,8 @@ pub fn read_stream<S: Read>(
     })
 }
 
+/// A [`QueryFilter`] which determines which entities should be unloaded before the load process begins.
+// TODO: Add a way to configure this filter.
 pub type DefaultUnloadFilter = Or<(With<Save>, With<Unload>)>;
 
 /// A [`System`] which recursively despawns all entities that match the given `Filter`.
@@ -407,7 +430,7 @@ pub fn insert_loaded(In(result): In<Result<Loaded, LoadError>>, world: &mut Worl
     }
 }
 
-/// A [`System`] which extracts the path from a [`LoadFromFileRequest`] [`Resource`].
+/// A [`System`] which extracts the path from a [`Resource`].
 pub fn get_file_from_resource<R>(request: Res<R>) -> PathBuf
 where
     R: GetFilePath + Resource,
@@ -415,7 +438,7 @@ where
     request.path().to_owned()
 }
 
-/// A [`System`] which extracts the path from a [`LoadFromFileRequest`] [`Event`].
+/// A [`System`] which extracts the path from an [`Event`].
 ///
 /// # Warning
 ///
@@ -434,6 +457,13 @@ where
     event.path().to_owned()
 }
 
+/// A [`System`] which extracts a [`Stream`] from an [`Event`].
+///
+/// # Warning
+///
+/// If multiple events are sent in a single update cycle, only the first one is processed.
+///
+/// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
 pub fn get_stream_from_event<E>(mut events: EventReader<E>) -> E::Stream
 where
     E: GetStream + Event,

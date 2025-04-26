@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 use std::{
     marker::PhantomData,
@@ -63,6 +64,7 @@ pub trait GetStream: 'static + Send + Sync {
 /// - A file (i.e. a file with a path determined at runtime; common use case)
 /// - A stream (i.e. a stream of data that is read/written to; specialized use case)
 pub trait Pipeline: 'static + Send + Sync {
+    #[doc(hidden)]
     fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         pipeline.into_configs()
     }
@@ -165,8 +167,10 @@ impl<E: Event> Pipeline for StreamFromEvent<E> {}
 ///
 /// Keep in mind that this will trigger [change detection](DetectChanges) for the mapped component.
 pub trait MapComponent<T: Component>: 'static + Clone + Send + Sync {
+    /// The mapped output type.
     type Output: Component;
 
+    /// Called during the Save/Load process to map components.
     fn map_component(&self, component: &T) -> Self::Output;
 }
 
@@ -186,6 +190,7 @@ where
 pub struct SceneMapper(Vec<ComponentMapperDyn>);
 
 impl SceneMapper {
+    /// Adds a component mapper to the scene mapper.
     pub fn map<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
         self.0.push(Box::new(ComponentMapperImpl::new(m)));
         self
