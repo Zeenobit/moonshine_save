@@ -26,19 +26,13 @@ struct Foo(u32);
 #[reflect(Component)]
 struct Bar;
 
-#[derive(Component, Reflect)]
+#[derive(Component, MapEntities, Reflect)]
 #[reflect(Component, MapEntities)]
 struct FooBar(Entity);
 
 impl FromWorld for FooBar {
     fn from_world(_: &mut World) -> Self {
         Self(Entity::PLACEHOLDER)
-    }
-}
-
-impl MapEntities for FooBar {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 

@@ -365,7 +365,7 @@ pub struct SavePipelineBuilder<F: QueryFilter> {
 ///
 /// let mut app = App::new();
 /// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save::<With<Save>>().into_file("example.ron"));
+///     .add_systems(PreUpdate, save::<With<Save>>().into(static_file("example.ron")));
 /// ```
 pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
     SavePipelineBuilder {
@@ -383,7 +383,7 @@ pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
 ///
 /// let mut app = App::new();
 /// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_default().into_file("example.ron"));
+///     .add_systems(PreUpdate, save_default().into(static_file("example.ron")));
 /// ```
 pub fn save_default() -> SavePipelineBuilder<With<Save>> {
     save()
@@ -401,7 +401,7 @@ pub fn save_default() -> SavePipelineBuilder<With<Save>> {
 ///
 /// let mut app = App::new();
 /// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_all().into_file("example.ron"));
+///     .add_systems(PreUpdate, save_all().into(static_file("example.ron")));
 /// ```
 pub fn save_all() -> SavePipelineBuilder<()> {
     save()
@@ -432,7 +432,7 @@ where
     ///         PreUpdate,
     ///         save_default()
     ///             .include_resource::<R>()
-    ///             .into_file("example.ron"));
+    ///             .into(static_file("example.ron")));
     /// ```
     pub fn include_resource<R: Resource>(mut self) -> Self {
         self.input.resources = self.input.resources.allow::<R>();
@@ -466,7 +466,7 @@ where
     ///         PreUpdate,
     ///         save_default()
     ///             .exclude_component::<Transform>()
-    ///             .into_file("example.ron"));
+    ///             .into(static_file("example.ron")));
     /// ```
     pub fn exclude_component<T: Component>(mut self) -> Self {
         self.input.components = self.input.components.deny::<T>();
