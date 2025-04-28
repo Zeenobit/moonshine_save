@@ -465,4 +465,3 @@ You may also contact me on the official [Bevy Discord](https://discord.gg/bevy) 
 [`Save`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.Save.html
 [`SavePlugin`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SavePlugin.html
 [`SavePipeline`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/type.SavePipeline.html
-[`check`]:https://docs.rs/moonshine-check/latest/moonshine_check/trait.Check.html#tymethod.check
