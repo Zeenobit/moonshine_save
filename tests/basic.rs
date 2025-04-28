@@ -28,7 +28,7 @@ struct Bar;
 
 #[derive(Component, MapEntities, Reflect)]
 #[reflect(Component, MapEntities)]
-struct FooBar(Entity);
+struct FooBar(#[entities] Entity);
 
 impl FromWorld for FooBar {
     fn from_world(_: &mut World) -> Self {

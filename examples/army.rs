@@ -76,7 +76,7 @@ struct Soldier;
 
 #[derive(Component, Default, Reflect)]
 #[reflect(Component, MapEntities)]
-struct SoldierWeapon(Option<Entity>);
+struct SoldierWeapon(#[entities] Option<Entity>);
 
 impl MapEntities for SoldierWeapon {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
