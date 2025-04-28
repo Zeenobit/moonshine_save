@@ -30,9 +30,6 @@ pub mod prelude {
         reflect::ReflectMapEntities,
     };
 
-    #[allow(deprecated)]
-    pub use crate::save::{save_all_with, save_default_with};
-
     pub use crate::{file_from_event, file_from_resource, static_file, GetFilePath};
 }
 
