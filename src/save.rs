@@ -81,6 +81,16 @@ pub struct Saved {
     pub mapper: SceneMapper,
 }
 
+/// An [`Event`] which is triggered when the save process is completed successfully.
+///
+/// # Usage
+/// This event does not carry any information about the saved data.
+///
+/// If you need access to saved data (for further processing), query the [`Saved`]
+/// resource instead during [`PostSave`](LoadSystem::PostSave).
+#[derive(Event)]
+pub struct OnSaved;
+
 /// A [`Component`] which marks its [`Entity`] to be saved.
 #[derive(Component, Default, Clone)]
 pub struct Save;
@@ -296,7 +306,10 @@ pub fn unmap_scene(
 /// All save pipelines should end with this system.
 pub fn insert_saved(In(result): In<Result<Saved, SaveError>>, world: &mut World) {
     match result {
-        Ok(saved) => world.insert_resource(saved),
+        Ok(saved) => {
+            world.insert_resource(saved);
+            world.trigger(OnSaved);
+        }
         Err(why) => error!("save failed: {why:?}"),
     }
 }
@@ -652,16 +665,25 @@ mod tests {
 
     #[test]
     fn test_save_into_file() {
+        #[derive(Resource)]
+        struct EventTriggered;
+
         pub const PATH: &str = "test_save_into_file.ron";
         let mut app = app();
         app.add_systems(PreUpdate, save_default().into(static_file(PATH)));
+
+        app.add_observer(|_: Trigger<OnSaved>, mut commands: Commands| {
+            commands.insert_resource(EventTriggered);
+        });
 
         app.world_mut().spawn((Dummy, Save));
         app.update();
 
         let data = read_to_string(PATH).unwrap();
+        let world = app.world();
         assert!(data.contains("Dummy"));
-        assert!(!app.world().contains_resource::<Saved>());
+        assert!(!world.contains_resource::<Saved>());
+        assert!(world.contains_resource::<EventTriggered>());
 
         remove_file(PATH).unwrap();
     }

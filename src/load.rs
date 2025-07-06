@@ -132,6 +132,16 @@ pub struct Loaded {
     pub entity_map: EntityHashMap<Entity>,
 }
 
+/// An [`Event`] which is triggered when the load process is completed successfully.
+///
+/// # Usage
+/// This event does not carry any information about the loaded data.
+///
+/// If you need access to loaded data (for further processing), query the [`Loaded`]
+/// resource instead during [`PostLoad`](LoadSystem::PostLoad).
+#[derive(Event)]
+pub struct OnLoaded;
+
 /// An error which indicates a failure during the load process.
 #[derive(Debug)]
 pub enum LoadError {
@@ -425,7 +435,10 @@ pub fn insert_into_loaded(
 /// All load pipelines should end with this system.
 pub fn insert_loaded(In(result): In<Result<Loaded, LoadError>>, world: &mut World) {
     match result {
-        Ok(loaded) => world.insert_resource(loaded),
+        Ok(loaded) => {
+            world.insert_resource(loaded);
+            world.trigger(OnLoaded);
+        }
         Err(why) => error!("load failed: {why:?}"),
     }
 }
@@ -509,6 +522,9 @@ mod tests {
 
     #[test]
     fn test_load_file() {
+        #[derive(Resource)]
+        struct EventTriggered;
+
         pub const PATH: &str = "test_load_file.ron";
 
         write(PATH, DATA).unwrap();
@@ -516,10 +532,15 @@ mod tests {
         let mut app = app();
         app.add_systems(PreUpdate, load(static_file(PATH)));
 
+        app.add_observer(|_: Trigger<OnLoaded>, mut commands: Commands| {
+            commands.insert_resource(EventTriggered);
+        });
+
         app.update();
 
         let world = app.world_mut();
         assert!(!world.contains_resource::<Loaded>());
+        assert!(world.contains_resource::<EventTriggered>());
         assert!(world
             .query_filtered::<(), With<Dummy>>()
             .single(world)

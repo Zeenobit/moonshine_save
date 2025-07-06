@@ -17,11 +17,11 @@ pub mod save;
 /// Common elements for saving/loading world state.
 pub mod prelude {
     pub use crate::load::{
-        load, LoadError, LoadMapComponent, LoadPlugin, LoadSystem, Loaded, Unload,
+        load, LoadError, LoadMapComponent, LoadPlugin, LoadSystem, Loaded, OnLoaded, Unload,
     };
 
     pub use crate::save::{
-        save, save_all, save_default, save_with, Save, SaveError, SaveInput, SavePlugin,
+        save, save_all, save_default, save_with, OnSaved, Save, SaveError, SaveInput, SavePlugin,
         SaveSystem, Saved,
     };
 
