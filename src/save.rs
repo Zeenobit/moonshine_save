@@ -363,177 +363,6 @@ pub enum SaveSystem {
 
 #[deprecated]
 #[doc(hidden)]
-pub fn filter<F: 'static + QueryFilter>(
-    In(mut input): In<SaveInput>,
-    entities: Query<Entity, F>,
-) -> SaveInput {
-    input.entities = EntityFilter::allow(&entities);
-    input
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn map_scene(In(mut input): In<SaveInput>, world: &mut World) -> SaveInput {
-    if !input.mapper.is_empty() {
-        match &input.entities {
-            EntityFilter::Allow(entities) => {
-                for entity in entities {
-                    input.mapper.apply(world.entity_mut(*entity));
-                }
-            }
-            EntityFilter::Block(blocked) => {
-                let entities: Vec<Entity> = world
-                    .iter_entities()
-                    .filter_map(|entity| (!blocked.contains(&entity.id())).then_some(entity.id()))
-                    .collect();
-                for entity in entities {
-                    input.mapper.apply(world.entity_mut(entity));
-                }
-            }
-        }
-    }
-    input
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn save_scene(In(input): In<SaveInput>, world: &World) -> Saved {
-    let mut builder = DynamicSceneBuilder::from_world(world)
-        .with_component_filter(input.components)
-        .with_resource_filter(input.resources)
-        .extract_resources();
-    match input.entities {
-        EntityFilter::Allow(entities) => {
-            builder = builder.extract_entities(entities.into_iter());
-        }
-        EntityFilter::Block(entities) => {
-            if !entities.is_empty() {
-                builder = builder.extract_entities(world.iter_entities().filter_map(|entity| {
-                    (!entities.contains(&entity.id())).then_some(entity.id())
-                }));
-            }
-        }
-    }
-    let scene = builder.build();
-    Saved {
-        scene,
-        //mapper: input.mapper,
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn write_static_file(
-    path: PathBuf,
-) -> impl Fn(In<Saved>, Res<AppTypeRegistry>) -> Result<Saved, SaveError> {
-    move |In(saved), type_registry| {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let data = saved.scene.serialize(&type_registry.read())?;
-        std::fs::write(&path, data.as_bytes())?;
-        info!("saved into file: {path:?}");
-        Ok(saved)
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn write_file(
-    In((path, saved)): In<(PathBuf, Saved)>,
-    type_registry: Res<AppTypeRegistry>,
-) -> Result<Saved, SaveError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let data = saved.scene.serialize(&type_registry.read())?;
-    std::fs::write(&path, data.as_bytes())?;
-    info!("saved into file: {path:?}");
-    Ok(saved)
-}
-
-/// A [`System`] which writes [`Saved`] data into a stream.
-pub fn write_stream<S: Write>(
-    In((mut stream, saved)): In<(S, Saved)>,
-    type_registry: Res<AppTypeRegistry>,
-) -> Result<Saved, SaveError> {
-    let data = saved.scene.serialize(&type_registry.read())?;
-    stream.write_all(data.as_bytes())?;
-    info!("saved into stream");
-    Ok(saved)
-}
-
-/// A [`System`] which undoes the changes from a [`SceneMapper`] for all entities in the world.
-pub fn unmap_scene(
-    In(mut result): In<Result<Saved, SaveError>>,
-    world: &mut World,
-) -> Result<Saved, SaveError> {
-    if let Ok(saved) = &mut result {
-        // if !saved.mapper.is_empty() {
-        //     for entity in saved.scene.entities.iter().map(|e| e.entity) {
-        //         saved.mapper.undo(world.entity_mut(entity));
-        //     }
-        // }
-    }
-    result
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn insert_saved(In(result): In<Result<Saved, SaveError>>, world: &mut World) {
-    match result {
-        Ok(saved) => {
-            world.insert_resource(saved);
-            //world.trigger(OnSave);
-        }
-        Err(why) => error!("save failed: {why:?}"),
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn get_file_from_resource<R>(In(saved): In<Saved>, request: Res<R>) -> (PathBuf, Saved)
-where
-    R: GetFilePath + Resource,
-{
-    let path = request.path().to_owned();
-    (path, saved)
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn get_file_from_event<E>(In(saved): In<Saved>, mut events: EventReader<E>) -> (PathBuf, Saved)
-where
-    E: GetFilePath + Event,
-{
-    let mut iter = events.read();
-    let event = iter.next().unwrap();
-    if iter.next().is_some() {
-        warn!("multiple save request events received; only the first one is processed.");
-    }
-    let path = event.path().to_owned();
-    (path, saved)
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn get_stream_from_event<E>(
-    In(saved): In<Saved>,
-    mut events: EventReader<E>,
-) -> (<E as GetStream>::Stream, Saved)
-where
-    E: GetStream + Event,
-{
-    let mut iter = events.read();
-    let event = iter.next().unwrap();
-    if iter.next().is_some() {
-        warn!("multiple save request events received; only the first one is processed.");
-    }
-    (event.stream(), saved)
-}
-
-#[deprecated]
-#[doc(hidden)]
 pub struct SavePipelineBuilder<F: QueryFilter> {
     query: PhantomData<F>,
     input: SaveInput,
@@ -656,13 +485,6 @@ pub fn save_with<S: IntoSystem<(), SaveInput, M>, M>(
 #[deprecated]
 #[doc(hidden)]
 pub trait SavePipeline: Pipeline {
-    #[deprecated]
-    #[doc(hidden)]
-    fn save(
-        &self,
-        system: impl System<In = (), Out = Saved>,
-    ) -> impl System<In = (), Out = Result<Saved, SaveError>>;
-
     fn as_save_event_source<F: QueryFilter>(
         &self,
     ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
@@ -677,13 +499,6 @@ pub trait SavePipeline: Pipeline {
 }
 
 impl SavePipeline for StaticFile {
-    fn save(
-        &self,
-        system: impl System<In = (), Out = Saved>,
-    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        IntoSystem::into_system(system.pipe(write_static_file(self.0.clone())))
-    }
-
     fn as_save_event_source<F: QueryFilter>(
         &self,
     ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
@@ -714,17 +529,6 @@ impl<S: GetStaticStream> SavePipeline for StaticStream<S>
 where
     S::Stream: Write,
 {
-    fn save(
-        &self,
-        system: impl System<In = (), Out = Saved>,
-    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        IntoSystem::into_system(
-            system
-                .pipe(move |In(saved): In<Saved>| (S::stream(), saved))
-                .pipe(write_stream),
-        )
-    }
-
     fn as_save_event_source<F: QueryFilter>(
         &self,
     ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
@@ -750,13 +554,6 @@ where
 }
 
 impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
-    fn save(
-        &self,
-        system: impl System<In = (), Out = Saved>,
-    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        IntoSystem::into_system(system.pipe(get_file_from_resource::<R>).pipe(write_file))
-    }
-
     fn as_save_event_source<F: QueryFilter>(
         &self,
     ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
@@ -787,17 +584,6 @@ impl<R: GetStream + Resource> SavePipeline for StreamFromResource<R>
 where
     R::Stream: Write,
 {
-    fn save(
-        &self,
-        system: impl System<In = (), Out = Saved>,
-    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        IntoSystem::into_system(
-            system
-                .pipe(move |In(saved): In<Saved>, resource: Res<R>| (resource.stream(), saved))
-                .pipe(write_stream),
-        )
-    }
-
     fn as_save_event_source<F: QueryFilter>(
         &self,
     ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
@@ -825,13 +611,6 @@ where
 }
 
 impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
-    fn save(
-        &self,
-        system: impl System<In = (), Out = Saved>,
-    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        IntoSystem::into_system(system.pipe(get_file_from_event::<E>).pipe(write_file))
-    }
-
     fn as_save_event_source<F: QueryFilter>(
         &self,
     ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
@@ -876,13 +655,6 @@ impl<E: GetStream + Event> SavePipeline for StreamFromEvent<E>
 where
     E::Stream: Write,
 {
-    fn save(
-        &self,
-        system: impl System<In = (), Out = Saved>,
-    ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
-        IntoSystem::into_system(system.pipe(get_stream_from_event::<E>).pipe(write_stream))
-    }
-
     fn as_save_event_source<F: QueryFilter>(
         &self,
     ) -> impl System<In = (), Out = Option<SaveWorld<F>>>

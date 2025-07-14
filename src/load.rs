@@ -298,10 +298,6 @@ pub struct Loaded {
 #[deprecated]
 #[doc(hidden)]
 pub trait LoadPipeline: Pipeline {
-    #[deprecated]
-    #[doc(hidden)]
-    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>>;
-
     fn mapper(&self) -> Option<SceneMapper> {
         None
     }
@@ -310,10 +306,6 @@ pub trait LoadPipeline: Pipeline {
 }
 
 impl LoadPipeline for StaticFile {
-    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        IntoSystem::into_system(read_static_file(self.0.clone(), Default::default()))
-    }
-
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
         let path = self.0.clone();
         IntoSystem::into_system(move || Some(LoadWorld::from_file(path.clone())))
@@ -324,10 +316,6 @@ impl<S: GetStaticStream> LoadPipeline for StaticStream<S>
 where
     S::Stream: Read,
 {
-    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        IntoSystem::into_system((|| S::stream()).pipe(read_stream))
-    }
-
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
         IntoSystem::into_system(|| Some(LoadWorld::from_stream(S::stream())))
     }
@@ -337,10 +325,6 @@ impl<R> LoadPipeline for FileFromResource<R>
 where
     R: Resource + GetFilePath,
 {
-    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        IntoSystem::into_system(get_file_from_resource::<R>.pipe(read_file))
-    }
-
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
         IntoSystem::into_system(|res: Option<Res<R>>| res.map(|r| LoadWorld::from_file(r.path())))
     }
@@ -350,10 +334,6 @@ impl<R: GetStream + Resource> LoadPipeline for StreamFromResource<R>
 where
     R::Stream: Read,
 {
-    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        IntoSystem::into_system((|resource: Res<R>| resource.stream()).pipe(read_stream))
-    }
-
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
         IntoSystem::into_system(|res: Option<Res<R>>| {
             res.map(|r| LoadWorld::from_stream(r.stream()))
@@ -365,10 +345,6 @@ impl<E> LoadPipeline for FileFromEvent<E>
 where
     E: Event + GetFilePath,
 {
-    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        IntoSystem::into_system(get_file_from_event::<E>.pipe(read_file))
-    }
-
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
         IntoSystem::into_system(|mut events: EventReader<E>| {
             let mut iter = events.read();
@@ -385,10 +361,6 @@ impl<E: GetStream + Event> LoadPipeline for StreamFromEvent<E>
 where
     E::Stream: Read,
 {
-    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        IntoSystem::into_system(get_stream_from_event::<E>.pipe(read_stream))
-    }
-
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
         IntoSystem::into_system(|mut events: EventReader<E>| {
             let mut iter = events.read();
@@ -462,18 +434,6 @@ impl<P: Pipeline> Pipeline for LoadPipelineBuilder<P> {
 }
 
 impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
-    fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>> {
-        let mapper = self.mapper.clone();
-        IntoSystem::into_system(self.pipeline.load().pipe(
-            move |In(saved): In<Result<Saved, LoadError>>| {
-                saved.map(|saved| Saved {
-                    //mapper: mapper.clone(),
-                    ..saved
-                })
-            },
-        ))
-    }
-
     fn mapper(&self) -> Option<SceneMapper> {
         Some(self.mapper.clone())
     }
@@ -481,179 +441,6 @@ impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
         self.pipeline.as_load_event_source()
     }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn read_static_file(
-    path: impl Into<PathBuf>,
-    mapper: SceneMapper,
-) -> impl Fn(Res<AppTypeRegistry>) -> Result<Saved, LoadError> {
-    let path = path.into();
-    move |type_registry| {
-        let input = std::fs::read(&path)?;
-        let mut deserializer = ron::Deserializer::from_bytes(&input)?;
-        let scene = {
-            let type_registry = &type_registry.read();
-            let scene_deserializer = SceneDeserializer { type_registry };
-            scene_deserializer.deserialize(&mut deserializer)?
-        };
-        info!("loaded from file: {path:?}");
-        Ok(Saved {
-            scene,
-            //mapper: mapper.clone(),
-        })
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn read_file(
-    In(path): In<PathBuf>,
-    type_registry: Res<AppTypeRegistry>,
-) -> Result<Saved, LoadError> {
-    let input = std::fs::read(&path)?;
-    let mut deserializer = ron::Deserializer::from_bytes(&input)?;
-    let scene = {
-        let type_registry = &type_registry.read();
-        let scene_deserializer = SceneDeserializer { type_registry };
-        scene_deserializer.deserialize(&mut deserializer)?
-    };
-    info!("loaded from file: {path:?}");
-    Ok(Saved {
-        scene,
-        //mapper: Default::default(),
-    })
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn read_stream<S: Read>(
-    In(mut stream): In<S>,
-    type_registry: Res<AppTypeRegistry>,
-) -> Result<Saved, LoadError> {
-    let mut input = Vec::new();
-    stream.read_to_end(&mut input)?;
-    let mut deserializer = ron::Deserializer::from_bytes(&input)?;
-    let scene = {
-        let type_registry = &type_registry.read();
-        let scene_deserializer = SceneDeserializer { type_registry };
-        scene_deserializer.deserialize(&mut deserializer)?
-    };
-    info!("loaded from stream");
-    Ok(Saved {
-        scene,
-        //mapper: Default::default(),
-    })
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn unload<Filter: QueryFilter>(
-    In(result): In<Result<Saved, LoadError>>,
-    world: &mut World,
-) -> Result<Saved, LoadError> {
-    let saved = result?;
-    let entities: Vec<Entity> = world
-        .query_filtered::<Entity, Filter>()
-        .iter(world)
-        .collect();
-    for entity in entities {
-        if let Ok(entity) = world.get_entity_mut(entity) {
-            entity.despawn();
-        }
-    }
-    Ok(saved)
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn write_to_world(
-    In(result): In<Result<Saved, LoadError>>,
-    world: &mut World,
-) -> Result<Loaded, LoadError> {
-    let Saved { scene } = result?;
-    let mut entity_map = EntityHashMap::default();
-    scene.write_to_world(world, &mut entity_map)?;
-    // if !mapper.is_empty() {
-    //     for entity in entity_map.values() {
-    //         if let Ok(entity) = world.get_entity_mut(*entity) {
-    //             mapper.replace(entity);
-    //         }
-    //     }
-    // }
-    Ok(Loaded { entity_map })
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn insert_into_loaded(
-    bundle: impl Bundle + Clone,
-) -> impl Fn(In<Result<Loaded, LoadError>>, &mut World) -> Result<Loaded, LoadError> {
-    move |In(result), world| {
-        if let Ok(loaded) = &result {
-            for (saved_entity, entity) in loaded.entity_map.iter() {
-                if let Ok(mut entity) = world.get_entity_mut(*entity) {
-                    entity.insert(bundle.clone());
-                } else {
-                    error!(
-                        "entity {saved_entity} is referenced in saved data but was never saved (raw bits = {})",
-                        saved_entity.to_bits()
-                    );
-                }
-            }
-        }
-        result
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn insert_loaded(In(result): In<Result<Loaded, LoadError>>, world: &mut World) {
-    match result {
-        Ok(loaded) => {
-            world.insert_resource(loaded);
-            //world.trigger(OnLoaded);
-        }
-        Err(why) => error!("load failed: {why:?}"),
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn get_file_from_resource<R>(request: Res<R>) -> PathBuf
-where
-    R: GetFilePath + Resource,
-{
-    request.path().to_owned()
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn get_file_from_event<E>(mut events: EventReader<E>) -> PathBuf
-where
-    E: GetFilePath + Event,
-{
-    let mut iter = events.read();
-    let event = iter.next().unwrap();
-    if iter.next().is_some() {
-        warn!("multiple load request events received; only the first one is processed.");
-    }
-    event.path().to_owned()
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn get_stream_from_event<E>(mut events: EventReader<E>) -> E::Stream
-where
-    E: GetStream + Event,
-{
-    let mut iter = events.read();
-    let event = iter.next().unwrap();
-    if iter.next().is_some() {
-        warn!("multiple load request events received; only the first one is processed.");
-    }
-    event.stream()
 }
 
 #[cfg(test)]
