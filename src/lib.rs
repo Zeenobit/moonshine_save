@@ -33,11 +33,13 @@ pub mod prelude {
     pub use crate::{file_from_event, file_from_resource, static_file, GetFilePath};
 }
 
+#[deprecated]
 #[doc(hidden)]
 pub trait GetFilePath {
     fn path(&self) -> &Path;
 }
 
+#[deprecated]
 #[doc(hidden)]
 pub trait GetStaticStream: 'static + Send + Sync {
     type Stream: 'static + Send + Sync;
@@ -45,6 +47,7 @@ pub trait GetStaticStream: 'static + Send + Sync {
     fn stream() -> Self::Stream;
 }
 
+#[deprecated]
 #[doc(hidden)]
 pub trait GetStream: 'static + Send + Sync {
     type Stream: 'static + Send + Sync;
@@ -52,32 +55,30 @@ pub trait GetStream: 'static + Send + Sync {
     fn stream(&self) -> Self::Stream;
 }
 
-/// A trait which represents a Save or Load pipeline.
-///
-/// A Save/Load pipeline is just a chain of systems that run in a specific configuration.
-///
-/// Each pipeline has an "endpoint", which may:
-/// - A static file (i.e. a file with a fixed path determined at compile time; this is most often used for tests/debugging),
-/// - A file (i.e. a file with a path determined at runtime; common use case)
-/// - A stream (i.e. a stream of data that is read/written to; specialized use case)
+#[deprecated]
+#[doc(hidden)]
 pub trait Pipeline: 'static + Send + Sync {
+    #[deprecated]
     #[doc(hidden)]
     fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         pipeline.into_configs()
     }
 }
 
-/// Save/Load [`Pipeline`] endpoint for static files.
+#[deprecated]
+#[doc(hidden)]
 pub fn static_file(path: impl Into<PathBuf>) -> StaticFile {
     StaticFile(path.into())
 }
 
-/// Save/Load [`Pipeline`] endpoint for static streams.
+#[deprecated]
+#[doc(hidden)]
 pub fn static_stream<S>(stream: S) -> StaticStream<S> {
     StaticStream(stream)
 }
 
-/// Save/Load [`Pipeline`] endpoint for files from [`Resource`] types.
+#[deprecated]
+#[doc(hidden)]
 pub fn file_from_resource<R>() -> FileFromResource<R>
 where
     R: Resource,
@@ -85,7 +86,8 @@ where
     FileFromResource(PhantomData::<R>)
 }
 
-/// Save/Load [`Pipeline`] endpoint for streams from [`Resource`] types.
+#[deprecated]
+#[doc(hidden)]
 pub fn stream_from_resource<R>() -> StreamFromResource<R>
 where
     R: Resource,
@@ -93,7 +95,8 @@ where
     StreamFromResource(PhantomData::<R>)
 }
 
-/// Save/Load [`Pipeline`] endpoint for files from [`Event`] types.
+#[deprecated]
+#[doc(hidden)]
 pub fn file_from_event<E>() -> FileFromEvent<E>
 where
     E: Event,
@@ -101,7 +104,8 @@ where
     FileFromEvent(PhantomData::<E>)
 }
 
-/// Save/Load [`Pipeline`] endpoint for streams from [`Event`] types.
+#[deprecated]
+#[doc(hidden)]
 pub fn stream_from_event<E>() -> StreamFromEvent<E>
 where
     E: Event,
@@ -109,17 +113,20 @@ where
     StreamFromEvent(PhantomData::<E>)
 }
 
+#[deprecated]
 #[doc(hidden)]
 pub struct StaticFile(PathBuf);
 
 impl Pipeline for StaticFile {}
 
+#[deprecated]
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct StaticStream<S>(S);
 
 impl<S: 'static + Send + Sync> Pipeline for StaticStream<S> {}
 
+#[deprecated]
 #[doc(hidden)]
 pub struct FileFromResource<R>(PhantomData<R>);
 
@@ -131,6 +138,7 @@ impl<R: Resource> Pipeline for FileFromResource<R> {
     }
 }
 
+#[deprecated]
 #[doc(hidden)]
 pub struct StreamFromResource<R>(PhantomData<R>);
 
@@ -142,11 +150,13 @@ impl<R: Resource> Pipeline for StreamFromResource<R> {
     }
 }
 
+#[deprecated]
 #[doc(hidden)]
 pub struct FileFromEvent<E>(PhantomData<E>);
 
 impl<E: Event> Pipeline for FileFromEvent<E> {}
 
+#[deprecated]
 #[doc(hidden)]
 pub struct StreamFromEvent<E>(PhantomData<E>);
 

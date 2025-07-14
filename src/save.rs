@@ -63,7 +63,8 @@ impl Plugin for SavePlugin {
     }
 }
 
-/// A [`SystemSet`] for systems that process saving.
+#[deprecated]
+#[doc(hidden)]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, SystemSet)]
 pub enum SaveSystem {
     /// Reserved for systems which serialize the world and process the output.
@@ -72,8 +73,8 @@ pub enum SaveSystem {
     PostSave,
 }
 
-/// A [`Resource`] which contains the saved [`World`] data during [`SaveSystem::PostSave`].
-#[derive(Resource)]
+/// Contains the saved [`World`] data as a [`DynamicScene`].
+#[derive(Resource)] // TODO: Should be removed after migration
 pub struct Saved {
     /// The saved [`DynamicScene`] to be serialized.
     pub scene: DynamicScene,
@@ -89,7 +90,7 @@ pub struct Saved {
 /// If you need access to saved data (for further processing), query the [`Saved`]
 /// resource instead during [`PostSave`](LoadSystem::PostSave).
 #[derive(Event)]
-pub struct OnSaved;
+pub struct OnSaved(Saved);
 
 /// A [`Component`] which marks its [`Entity`] to be saved.
 #[derive(Component, Default, Clone)]
@@ -145,7 +146,8 @@ impl EntityFilter {
     }
 }
 
-/// Parameters for the save pipeline.
+#[deprecated]
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct SaveInput {
     /// A filter for selecting which entities should be saved.
@@ -177,7 +179,8 @@ impl Default for SaveInput {
     }
 }
 
-/// Creates a [`SaveInput`] which selects all entities which match the given [`QueryFilter`] `F`.
+#[deprecated]
+#[doc(hidden)]
 pub fn filter<F: 'static + QueryFilter>(
     In(mut input): In<SaveInput>,
     entities: Query<Entity, F>,
@@ -186,7 +189,8 @@ pub fn filter<F: 'static + QueryFilter>(
     input
 }
 
-/// A [`System`] which applies the [`SceneMapper`] to all entities in the world.
+#[deprecated]
+#[doc(hidden)]
 pub fn map_scene(In(mut input): In<SaveInput>, world: &mut World) -> SaveInput {
     if !input.mapper.is_empty() {
         match &input.entities {
@@ -216,11 +220,8 @@ pub fn map_scene(In(mut input): In<SaveInput>, world: &mut World) -> SaveInput {
     input
 }
 
-/// A [`System`] which creates [`Saved`] data from all entities with given `Filter`.
-///
-/// # Usage
-///
-/// All save pipelines should start with this system.
+#[deprecated]
+#[doc(hidden)]
 pub fn save_scene(In(input): In<SaveInput>, world: &World) -> Saved {
     let mut builder = DynamicSceneBuilder::from_world(world)
         .with_component_filter(input.components)
@@ -245,7 +246,8 @@ pub fn save_scene(In(input): In<SaveInput>, world: &World) -> Saved {
     }
 }
 
-/// A [`System`] which writes [`Saved`] data into a file at given `path`.
+#[deprecated]
+#[doc(hidden)]
 pub fn write_static_file(
     path: PathBuf,
 ) -> impl Fn(In<Saved>, Res<AppTypeRegistry>) -> Result<Saved, SaveError> {
@@ -260,7 +262,8 @@ pub fn write_static_file(
     }
 }
 
-/// A [`System`] which writes [`Saved`] data into a file with its path defined at runtime.
+#[deprecated]
+#[doc(hidden)]
 pub fn write_file(
     In((path, saved)): In<(PathBuf, Saved)>,
     type_registry: Res<AppTypeRegistry>,
@@ -300,21 +303,20 @@ pub fn unmap_scene(
     result
 }
 
-/// A [`System`] which finishes the save process.
-///
-/// # Usage
-/// All save pipelines should end with this system.
+#[deprecated]
+#[doc(hidden)]
 pub fn insert_saved(In(result): In<Result<Saved, SaveError>>, world: &mut World) {
     match result {
         Ok(saved) => {
             world.insert_resource(saved);
-            world.trigger(OnSaved);
+            //world.trigger(OnSave);
         }
         Err(why) => error!("save failed: {why:?}"),
     }
 }
 
-/// A [`System`] which extracts the path from a [`SaveIntoFileRequest`] [`Resource`].
+#[deprecated]
+#[doc(hidden)]
 pub fn get_file_from_resource<R>(In(saved): In<Saved>, request: Res<R>) -> (PathBuf, Saved)
 where
     R: GetFilePath + Resource,
@@ -323,13 +325,8 @@ where
     (path, saved)
 }
 
-/// A [`System`] which extracts the path from an [`Event`].
-///
-/// # Warning
-///
-/// If multiple events are sent in a single update cycle, only the first one is processed.
-///
-/// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
+#[deprecated]
+#[doc(hidden)]
 pub fn get_file_from_event<E>(In(saved): In<Saved>, mut events: EventReader<E>) -> (PathBuf, Saved)
 where
     E: GetFilePath + Event,
@@ -343,7 +340,8 @@ where
     (path, saved)
 }
 
-/// A [`System`] which extracts a [`Stream`] from an [`Event`].
+#[deprecated]
+#[doc(hidden)]
 pub fn get_stream_from_event<E>(
     In(saved): In<Saved>,
     mut events: EventReader<E>,
@@ -359,27 +357,15 @@ where
     (event.stream(), saved)
 }
 
-/// A convenient builder for defining a [`SavePipeline`].
-///
-/// See [`save`], [`save_default`], [`save_all`] on how to create an instance of this type.
+#[deprecated]
+#[doc(hidden)]
 pub struct SavePipelineBuilder<F: QueryFilter> {
     query: PhantomData<F>,
     input: SaveInput,
 }
 
-/// Creates a [`SavePipelineBuilder`] which saves all entities with given [`QueryFilter`] `F`.
-///
-/// During the save process, all entities that match the given query will be selected for saving.
-///
-/// # Example
-/// ```
-/// use bevy::prelude::*;
-/// use moonshine_save::prelude::*;
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save::<With<Save>>().into(static_file("example.ron")));
-/// ```
+#[deprecated]
+#[doc(hidden)]
 pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
     SavePipelineBuilder {
         query: PhantomData,
@@ -387,35 +373,14 @@ pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
     }
 }
 
-/// Creates a [`SavePipelineBuilder`] which saves all entities with a [`Save`] component.
-///
-/// # Example
-/// ```
-/// use bevy::prelude::*;
-/// use moonshine_save::prelude::*;
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_default().into(static_file("example.ron")));
-/// ```
+#[deprecated]
+#[doc(hidden)]
 pub fn save_default() -> SavePipelineBuilder<With<Save>> {
     save()
 }
 
-/// Creates a [`SavePipelineBuilder`] which saves all entities unconditionally.
-///
-/// # Warning
-/// Be careful about using this builder as some entities and/or components may not be safely serializable.
-///
-/// # Example
-/// ```
-/// use bevy::prelude::*;
-/// use moonshine_save::prelude::*;
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_all().into(static_file("example.ron")));
-/// ```
+#[deprecated]
+#[doc(hidden)]
 pub fn save_all() -> SavePipelineBuilder<()> {
     save()
 }
@@ -424,83 +389,42 @@ impl<F: QueryFilter> SavePipelineBuilder<F>
 where
     F: 'static,
 {
-    /// Includes a given [`Resource`] type into the save pipeline.
-    ///
-    /// By default, all resources are *excluded* from the save pipeline.
-    ///
-    /// # Example
-    /// ```
-    /// use bevy::prelude::*;
-    /// use moonshine_save::prelude::*;
-    ///
-    /// #[derive(Resource, Default, Reflect)]
-    /// #[reflect(Resource)]
-    /// struct R;
-    ///
-    /// let mut app = App::new();
-    /// app.register_type::<R>()
-    ///     .insert_resource(R)
-    ///     .add_plugins((MinimalPlugins, SavePlugin))
-    ///     .add_systems(
-    ///         PreUpdate,
-    ///         save_default()
-    ///             .include_resource::<R>()
-    ///             .into(static_file("example.ron")));
-    /// ```
+    #[deprecated]
+    #[doc(hidden)]
     pub fn include_resource<R: Resource>(mut self) -> Self {
         self.input.resources = self.input.resources.allow::<R>();
         self
     }
 
-    /// Includes a given [`Resource`] type into the save pipeline by its [`TypeId`].
+    #[deprecated]
+    #[doc(hidden)]
     pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
         self.input.resources = self.input.resources.allow_by_id(type_id);
         self
     }
-
-    /// Excludes a given [`Component`] type from the save pipeline.
-    ///
-    /// By default, all components which derive `Reflect` are *included* in the save pipeline.
-    ///
-    /// # Example
-    /// ```
-    /// use bevy::prelude::*;
-    /// use moonshine_save::prelude::*;
-    ///
-    /// #[derive(Resource, Default, Reflect)]
-    /// #[reflect(Resource)]
-    /// struct R;
-    ///
-    /// let mut app = App::new();
-    /// app.register_type::<R>()
-    ///     .insert_resource(R)
-    ///     .add_plugins((MinimalPlugins, SavePlugin))
-    ///     .add_systems(
-    ///         PreUpdate,
-    ///         save_default()
-    ///             .exclude_component::<Transform>()
-    ///             .into(static_file("example.ron")));
-    /// ```
+    #[deprecated]
+    #[doc(hidden)]
     pub fn exclude_component<T: Component>(mut self) -> Self {
         self.input.components = self.input.components.deny::<T>();
         self
     }
 
-    /// Excludes a given [`Component`] type from the save pipeline by its [`TypeId`].
+    #[deprecated]
+    #[doc(hidden)]
     pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
         self.input.components = self.input.components.deny_by_id(type_id);
         self
     }
 
-    /// Adds a component mapper to the save pipeline.
-    ///
-    /// See [`MapComponent`] for more details.
+    #[deprecated]
+    #[doc(hidden)]
     pub fn map_component<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
         self.input.mapper = self.input.mapper.map(m);
         self
     }
 
-    /// Finalizes the save pipeline and returns it as a set of [`ScheduleConfigs`] to be inserted into a [`Schedule`].
+    #[deprecated]
+    #[doc(hidden)]
     pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
         let Self { input, .. } = self;
         let system = (move || input.clone())
@@ -516,15 +440,15 @@ where
     }
 }
 
-/// A convenient builder for defining a [`SavePipeline`] with a dynamic [`SaveInput`] which can be provided from any [`System`].
-///
-/// See [`save_with`], [`save_default_with`], and [`save_all_with`] on how to create an instance of this type.
+#[deprecated]
+#[doc(hidden)]
 pub struct DynamicSavePipelineBuilder<S: System<In = (), Out = SaveInput>> {
     input_source: S,
 }
 
 impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
-    /// Finalizes the save pipeline and returns it as a set of [`ScheduleConfigs`] to be inserted into a [`Schedule`].
+    #[deprecated]
+    #[doc(hidden)]
     pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
         let Self { input_source, .. } = self;
         let system = input_source.pipe(map_scene).pipe(save_scene);
@@ -537,24 +461,8 @@ impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
     }
 }
 
-/// Creates a [`DynamicSavePipelineBuilder`] which saves all entities with given [`QueryFilter`] `F` and an input source `S`.
-///
-/// During the save process, all entities that match the given query will be selected for saving.
-/// Additionally, any valid system which returns a [`SaveInput`] may be used to provide the initial save input dynamically.
-///
-/// # Example
-/// ```
-/// use bevy::prelude::*;
-/// use moonshine_save::prelude::*;
-///
-/// fn save_input(/* ... */) -> SaveInput {
-///     todo!()
-/// }
-///
-/// let mut app = App::new();
-/// app.add_plugins((MinimalPlugins, SavePlugin))
-///     .add_systems(PreUpdate, save_with(save_input).into(static_file("example.ron")));
-/// ```
+#[deprecated]
+#[doc(hidden)]
 pub fn save_with<S: IntoSystem<(), SaveInput, M>, M>(
     input_source: S,
 ) -> DynamicSavePipelineBuilder<S::System> {
@@ -563,8 +471,10 @@ pub fn save_with<S: IntoSystem<(), SaveInput, M>, M>(
     }
 }
 
-/// A pipeline of systems to handle the save process.
+#[deprecated]
+#[doc(hidden)]
 pub trait SavePipeline: Pipeline {
+    #[deprecated]
     #[doc(hidden)]
     fn save(
         &self,

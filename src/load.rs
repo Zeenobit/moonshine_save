@@ -72,7 +72,8 @@ impl Plugin for LoadPlugin {
     }
 }
 
-/// A [`SystemSet`] for systems that process loading [`Saved`] data.
+#[deprecated]
+#[doc(hidden)]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, SystemSet)]
 pub enum LoadSystem {
     /// Reserved for systems which deserialize [`Saved`] data and process the output.
@@ -140,7 +141,7 @@ pub struct Loaded {
 /// If you need access to loaded data (for further processing), query the [`Loaded`]
 /// resource instead during [`PostLoad`](LoadSystem::PostLoad).
 #[derive(Event)]
-pub struct OnLoaded;
+pub struct OnLoaded(Loaded);
 
 /// An error which indicates a failure during the load process.
 #[derive(Debug)]
@@ -179,8 +180,10 @@ impl From<SceneSpawnError> for LoadError {
     }
 }
 
-/// A pipeline of systems to handle the load process.
+#[deprecated]
+#[doc(hidden)]
 pub trait LoadPipeline: Pipeline {
+    #[deprecated]
     #[doc(hidden)]
     fn load(&self) -> impl System<In = (), Out = Result<Saved, LoadError>>;
 }
@@ -236,7 +239,8 @@ where
     }
 }
 
-/// Converts a [`LoadPipeline`] into a [`ScheduleConfigs`] to be installed a [`Schedule`].
+#[deprecated]
+#[doc(hidden)]
 pub fn load(p: impl LoadPipeline) -> ScheduleConfigs<ScheduleSystem> {
     let system = p
         .load()
@@ -248,11 +252,11 @@ pub fn load(p: impl LoadPipeline) -> ScheduleConfigs<ScheduleSystem> {
         .in_set(LoadSystem::Load)
 }
 
-/// Trait used to add [component mappers][`MapComponent`] to a [`LoadPipeline`] and create a [`LoadPipelineBuilder`]`.
+#[deprecated]
+#[doc(hidden)]
 pub trait LoadMapComponent: Sized {
-    /// Adds a component mapper to the pipeline.
-    ///
-    /// See [`MapComponent`] for more details.
+    #[deprecated]
+    #[doc(hidden)]
     fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self>;
 }
 
@@ -265,19 +269,16 @@ impl<P: Pipeline> LoadMapComponent for P {
     }
 }
 
-/// A convenient builder for defining a [`LoadPipeline`].
-///
-/// This type should not be created directly. Instead, use functions like [`static_file`](crate::static_file)
-/// or [`file_from_resource`](crate::file_from_resource) to construct a [`LoadPipeline`] and pass it into [`load`].
+#[deprecated]
+#[doc(hidden)]
 pub struct LoadPipelineBuilder<P> {
     pipeline: P,
     mapper: SceneMapper,
 }
 
 impl<P> LoadPipelineBuilder<P> {
-    /// Adds a component mapper to the pipeline.
-    ///
-    /// See [`MapComponent`] for more details.
+    #[deprecated]
+    #[doc(hidden)]
     pub fn map_component<U: Component>(self, m: impl MapComponent<U>) -> Self {
         Self {
             mapper: self.mapper.map(m),
@@ -306,7 +307,8 @@ impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
     }
 }
 
-/// A [`System`] which reads [`Saved`] data from a file at given `path`.
+#[deprecated]
+#[doc(hidden)]
 pub fn read_static_file(
     path: impl Into<PathBuf>,
     mapper: SceneMapper,
@@ -328,7 +330,8 @@ pub fn read_static_file(
     }
 }
 
-/// A [`System`] which reads [`Saved`] data from a file with its path defined at runtime.
+#[deprecated]
+#[doc(hidden)]
 pub fn read_file(
     In(path): In<PathBuf>,
     type_registry: Res<AppTypeRegistry>,
@@ -347,7 +350,8 @@ pub fn read_file(
     })
 }
 
-/// A [`System`] which reads [`Saved`] data from a stream.
+#[deprecated]
+#[doc(hidden)]
 pub fn read_stream<S: Read>(
     In(mut stream): In<S>,
     type_registry: Res<AppTypeRegistry>,
@@ -371,7 +375,8 @@ pub fn read_stream<S: Read>(
 // TODO: Add a way to configure this filter.
 pub type DefaultUnloadFilter = Or<(With<Save>, With<Unload>)>;
 
-/// A [`System`] which recursively despawns all entities that match the given `Filter`.
+#[deprecated]
+#[doc(hidden)]
 pub fn unload<Filter: QueryFilter>(
     In(result): In<Result<Saved, LoadError>>,
     world: &mut World,
@@ -389,7 +394,8 @@ pub fn unload<Filter: QueryFilter>(
     Ok(saved)
 }
 
-/// A [`System`] which writes [`Saved`] data into current [`World`].
+#[deprecated]
+#[doc(hidden)]
 pub fn write_to_world(
     In(result): In<Result<Saved, LoadError>>,
     world: &mut World,
@@ -407,7 +413,8 @@ pub fn write_to_world(
     Ok(Loaded { entity_map })
 }
 
-/// A [`System`] which inserts a clone of the given [`Bundle`] into all loaded entities.
+#[deprecated]
+#[doc(hidden)]
 pub fn insert_into_loaded(
     bundle: impl Bundle + Clone,
 ) -> impl Fn(In<Result<Loaded, LoadError>>, &mut World) -> Result<Loaded, LoadError> {
@@ -428,22 +435,20 @@ pub fn insert_into_loaded(
     }
 }
 
-/// A [`System`] which finishes the load process.
-///
-/// # Usage
-///
-/// All load pipelines should end with this system.
+#[deprecated]
+#[doc(hidden)]
 pub fn insert_loaded(In(result): In<Result<Loaded, LoadError>>, world: &mut World) {
     match result {
         Ok(loaded) => {
             world.insert_resource(loaded);
-            world.trigger(OnLoaded);
+            //world.trigger(OnLoaded);
         }
         Err(why) => error!("load failed: {why:?}"),
     }
 }
 
-/// A [`System`] which extracts the path from a [`Resource`].
+#[deprecated]
+#[doc(hidden)]
 pub fn get_file_from_resource<R>(request: Res<R>) -> PathBuf
 where
     R: GetFilePath + Resource,
@@ -451,13 +456,8 @@ where
     request.path().to_owned()
 }
 
-/// A [`System`] which extracts the path from an [`Event`].
-///
-/// # Warning
-///
-/// If multiple events are sent in a single update cycle, only the first one is processed.
-///
-/// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
+#[deprecated]
+#[doc(hidden)]
 pub fn get_file_from_event<E>(mut events: EventReader<E>) -> PathBuf
 where
     E: GetFilePath + Event,
@@ -470,13 +470,8 @@ where
     event.path().to_owned()
 }
 
-/// A [`System`] which extracts a [`Stream`] from an [`Event`].
-///
-/// # Warning
-///
-/// If multiple events are sent in a single update cycle, only the first one is processed.
-///
-/// This system assumes that at least one event has been sent. It must be used in conjunction with [`has_event`].
+#[deprecated]
+#[doc(hidden)]
 pub fn get_stream_from_event<E>(mut events: EventReader<E>) -> E::Stream
 where
     E: GetStream + Event,
