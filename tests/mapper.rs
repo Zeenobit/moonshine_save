@@ -23,6 +23,7 @@ impl FooBundle {
 }
 
 #[derive(Component)]
+#[require(Save)]
 struct Foo(Box<dyn Secret>); // Not serializable
 
 #[derive(Component, Default, Reflect)]
@@ -31,6 +32,7 @@ struct SerializedFoo(u32);
 
 #[derive(Component, Default, Reflect)]
 #[reflect(Component)]
+#[require(Save)]
 struct Bar;
 
 trait Secret: 'static + Send + Sync {

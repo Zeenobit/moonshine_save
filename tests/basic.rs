@@ -20,10 +20,12 @@ struct BarBundle {
 
 #[derive(Component, Default, Reflect)]
 #[reflect(Component)]
+#[require(Save)]
 struct Foo(u32);
 
 #[derive(Component, Default, Reflect)]
 #[reflect(Component)]
+#[require(Save)]
 struct Bar;
 
 #[derive(Component, MapEntities, Reflect)]
