@@ -17,7 +17,7 @@ pub mod save;
 /// Common elements for saving/loading world state.
 pub mod prelude {
     pub use crate::load::{
-        load, LoadError, LoadMapComponent, LoadPlugin, LoadSystem, Loaded, OnLoaded, Unload,
+        load, LoadError, LoadMapComponent, LoadPlugin, LoadSystem, Loaded, OnLoad, Unload,
     };
 
     pub use crate::save::{
@@ -64,11 +64,7 @@ pub trait Pipeline: 'static + Send + Sync {
         pipeline.into_configs()
     }
 
-    fn condition(&self) -> impl ReadOnlySystem<In = (), Out = bool> {
-        IntoSystem::into_system(|| true)
-    }
-
-    fn clean(&self, _world: &World, _commands: &mut Commands) {}
+    fn clean(&self, _world: &mut World) {}
 }
 
 #[deprecated]
@@ -143,12 +139,8 @@ impl<R: Resource> Pipeline for FileFromResource<R> {
             .run_if(has_resource::<R>)
     }
 
-    fn condition(&self) -> impl ReadOnlySystem<In = (), Out = bool> {
-        IntoSystem::into_system(|res: Option<Res<R>>| res.is_some())
-    }
-
-    fn clean(&self, _world: &World, commands: &mut Commands) {
-        commands.remove_resource::<R>();
+    fn clean(&self, world: &mut World) {
+        world.remove_resource::<R>();
     }
 }
 
@@ -163,12 +155,8 @@ impl<R: Resource> Pipeline for StreamFromResource<R> {
             .run_if(has_resource::<R>)
     }
 
-    fn condition(&self) -> impl ReadOnlySystem<In = (), Out = bool> {
-        IntoSystem::into_system(|res: Option<Res<R>>| res.is_some())
-    }
-
-    fn clean(&self, _world: &World, commands: &mut Commands) {
-        commands.remove_resource::<R>();
+    fn clean(&self, world: &mut World) {
+        world.remove_resource::<R>();
     }
 }
 

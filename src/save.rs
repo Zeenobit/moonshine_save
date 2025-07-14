@@ -10,7 +10,7 @@ use moonshine_util::event::{AddSingleObserver, SingleEvent, SingleTrigger, Trigg
 #[derive(Component, Default, Debug, Clone)]
 pub struct Save;
 
-pub trait TriggerSave: Sized {
+pub trait TriggerSave {
     fn trigger_save(self, event: impl SaveEvent);
 }
 
@@ -25,39 +25,6 @@ pub trait SaveEvent: SingleEvent {
 
     fn unpack(self) -> (SaveInput, SaveOutput);
 }
-
-#[derive(Clone)]
-pub struct SaveInput {
-    /// A filter for selecting which entities should be saved.
-    ///
-    /// By default, all entities are selected.
-    pub entities: EntityFilter,
-    /// A filter for selecting which resources should be saved.
-    ///
-    /// By default, no resources are selected. Most Bevy resources are not safely serializable.
-    pub resources: SceneFilter,
-    /// A filter for selecting which components should be saved.
-    ///
-    /// By default, all serializable components are selected.
-    pub components: SceneFilter,
-    /// A mapper for transforming components during the save process.
-    ///
-    /// See [`MapComponent`] for more information.
-    pub mapper: SceneMapper,
-}
-
-impl Default for SaveInput {
-    fn default() -> Self {
-        SaveInput {
-            entities: EntityFilter::any(),
-            components: SceneFilter::allow_all(),
-            resources: SceneFilter::deny_all(),
-            mapper: SceneMapper::default(),
-        }
-    }
-}
-
-pub type DefaultSaveFilter = With<Save>;
 
 pub struct SaveWorld<F: QueryFilter = DefaultSaveFilter> {
     pub input: SaveInput,
@@ -82,7 +49,7 @@ impl<F: QueryFilter> SaveWorld<F> {
         }
     }
 
-    pub fn into_stream<S: SaveStream + 'static>(stream: S) -> Self {
+    pub fn into_stream(stream: impl SaveStream) -> Self {
         Self {
             input: SaveInput::default(),
             output: SaveOutput::stream(stream),
@@ -129,6 +96,54 @@ where
     }
 }
 
+pub type DefaultSaveFilter = With<Save>;
+
+#[derive(Clone)]
+pub struct SaveInput {
+    /// A filter for selecting which entities should be saved.
+    ///
+    /// By default, all entities are selected.
+    pub entities: EntityFilter,
+    /// A filter for selecting which resources should be saved.
+    ///
+    /// By default, no resources are selected. Most Bevy resources are not safely serializable.
+    pub resources: SceneFilter,
+    /// A filter for selecting which components should be saved.
+    ///
+    /// By default, all serializable components are selected.
+    pub components: SceneFilter,
+    /// A mapper for transforming components during the save process.
+    ///
+    /// See [`MapComponent`] for more information.
+    pub mapper: SceneMapper,
+}
+
+impl Default for SaveInput {
+    fn default() -> Self {
+        SaveInput {
+            entities: EntityFilter::any(),
+            components: SceneFilter::allow_all(),
+            resources: SceneFilter::deny_all(),
+            mapper: SceneMapper::default(),
+        }
+    }
+}
+
+pub enum SaveOutput {
+    File(PathBuf),
+    Stream(Box<dyn SaveStream>),
+}
+
+impl SaveOutput {
+    pub fn file(path: impl Into<PathBuf>) -> Self {
+        Self::File(path.into())
+    }
+
+    pub fn stream<S: SaveStream + 'static>(stream: S) -> Self {
+        Self::Stream(Box::new(stream))
+    }
+}
+
 /// A filter for selecting which [`Entity`]s within a [`World`].
 #[derive(Clone, Debug)]
 pub enum EntityFilter {
@@ -158,22 +173,6 @@ impl EntityFilter {
 impl Default for EntityFilter {
     fn default() -> Self {
         Self::any()
-    }
-}
-
-#[derive(Clone)]
-pub enum SaveOutput {
-    File(PathBuf),
-    Stream(Arc<Mutex<dyn SaveStream>>),
-}
-
-impl SaveOutput {
-    pub fn file(path: impl Into<PathBuf>) -> Self {
-        Self::File(path.into())
-    }
-
-    pub fn stream<S: SaveStream + 'static>(stream: S) -> Self {
-        Self::Stream(Arc::new(Mutex::new(stream)))
     }
 }
 
@@ -272,10 +271,10 @@ fn save_world<E: SaveEvent>(event: E, world: &mut World) -> Result<Saved, SaveEr
             debug!("saved into file: {path:?}");
             Ok(Saved { scene })
         }
-        SaveOutput::Stream(stream) => {
+        SaveOutput::Stream(mut stream) => {
             let type_registry = world.resource::<AppTypeRegistry>().read();
             let data = scene.serialize(&type_registry)?;
-            stream.lock().unwrap().write_all(data.as_bytes())?;
+            stream.write_all(data.as_bytes())?;
             debug!("saved into stream");
             Ok(Saved { scene })
         }
@@ -321,7 +320,7 @@ impl Plugin for SavePlugin {
             PreUpdate,
             remove_resource::<Saved>.in_set(SaveSystem::PostSave),
         )
-        .add_single_observer(save_on::<SaveWorld<DefaultSaveFilter>>)
+        .add_single_observer(save_on::<SaveWorld>)
         .add_single_observer(save_on::<SaveWorld<()>>);
     }
 }
@@ -576,16 +575,19 @@ where
     #[deprecated]
     #[doc(hidden)]
     pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
-        let Self { input, .. } = self;
-        let condition = p.condition();
-        (move |world: &World, mut commands: Commands| {
-            let output = p.as_save_output(world);
-            let event = SaveWorld::<F>::new(input.clone(), output);
-            commands.trigger_single(event);
-            p.clean(world, &mut commands);
-        })
-        .run_if(condition)
-        .in_set(SaveSystem::Save)
+        let source = p.as_save_event_source();
+        source
+            .pipe(
+                move |In(input): In<Option<SaveWorld<F>>>, world: &mut World| {
+                    let Some(mut event) = input else {
+                        return;
+                    };
+                    event.input = self.input.clone();
+                    world.trigger_single(event);
+                    p.clean(world);
+                },
+            )
+            .in_set(SaveSystem::Save)
     }
 }
 
@@ -599,18 +601,18 @@ impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
     #[deprecated]
     #[doc(hidden)]
     pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
-        let Self { input_source, .. } = self;
-        let condition = p.condition();
-        input_source
+        let source = p.as_save_event_source_with_input();
+        self.input_source
+            .pipe(source)
             .pipe(
-                move |In(input): In<SaveInput>, world: &World, mut commands: Commands| {
-                    let output = p.as_save_output(world);
-                    let event = SaveWorld::<()>::new(input, output);
-                    commands.trigger_single(event);
-                    p.clean(world, &mut commands);
+                move |In(event): In<Option<SaveWorld<()>>>, world: &mut World| {
+                    let Some(event) = event else {
+                        return;
+                    };
+                    world.trigger_single(event);
+                    p.clean(world);
                 },
             )
-            .run_if(condition)
             .in_set(SaveSystem::Save)
     }
 }
@@ -635,7 +637,17 @@ pub trait SavePipeline: Pipeline {
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>>;
 
-    fn as_save_output(&self, world: &World) -> SaveOutput;
+    fn as_save_event_source<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync;
+
+    fn as_save_event_source_with_input<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync;
 }
 
 impl SavePipeline for StaticFile {
@@ -646,8 +658,29 @@ impl SavePipeline for StaticFile {
         IntoSystem::into_system(system.pipe(write_static_file(self.0.clone())))
     }
 
-    fn as_save_output(&self, _: &World) -> SaveOutput {
-        SaveOutput::file(&self.0)
+    fn as_save_event_source<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        let path = self.0.clone();
+        IntoSystem::into_system(move || Some(SaveWorld::<F>::into_file(&path)))
+    }
+
+    fn as_save_event_source_with_input<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        let path = self.0.clone();
+        IntoSystem::into_system(move |In(input): In<SaveInput>| {
+            Some(SaveWorld::<F> {
+                input,
+                ..SaveWorld::<F>::into_file(&path)
+            })
+        })
     }
 }
 
@@ -666,8 +699,27 @@ where
         )
     }
 
-    fn as_save_output(&self, _: &World) -> SaveOutput {
-        SaveOutput::stream(S::stream())
+    fn as_save_event_source<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        IntoSystem::into_system(move || Some(SaveWorld::<F>::into_stream(S::stream())))
+    }
+
+    fn as_save_event_source_with_input<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        IntoSystem::into_system(move |In(input): In<SaveInput>| {
+            Some(SaveWorld::<F> {
+                input,
+                ..SaveWorld::<F>::into_stream(S::stream())
+            })
+        })
     }
 }
 
@@ -679,9 +731,29 @@ impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
         IntoSystem::into_system(system.pipe(get_file_from_resource::<R>).pipe(write_file))
     }
 
-    fn as_save_output(&self, world: &World) -> SaveOutput {
-        let resource = world.resource::<R>();
-        SaveOutput::file(resource.path())
+    fn as_save_event_source<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        IntoSystem::into_system(move |res: Option<Res<R>>| {
+            res.map(|r| SaveWorld::<F>::into_file(r.path().to_owned()))
+        })
+    }
+
+    fn as_save_event_source_with_input<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        IntoSystem::into_system(move |In(input): In<SaveInput>, res: Option<Res<R>>| {
+            res.map(|r| SaveWorld::<F> {
+                input,
+                ..SaveWorld::<F>::into_file(r.path().to_owned())
+            })
+        })
     }
 }
 
@@ -700,9 +772,29 @@ where
         )
     }
 
-    fn as_save_output(&self, world: &World) -> SaveOutput {
-        let resource = world.resource::<R>();
-        SaveOutput::stream(resource.stream())
+    fn as_save_event_source<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        IntoSystem::into_system(move |res: Option<Res<R>>| {
+            res.map(|r| SaveWorld::<F>::into_stream(r.stream()))
+        })
+    }
+
+    fn as_save_event_source_with_input<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        IntoSystem::into_system(move |In(input): In<SaveInput>, res: Option<Res<R>>| {
+            res.map(|r| SaveWorld::<F> {
+                input,
+                ..SaveWorld::<F>::into_stream(r.stream())
+            })
+        })
     }
 }
 
@@ -714,8 +806,43 @@ impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
         IntoSystem::into_system(system.pipe(get_file_from_event::<E>).pipe(write_file))
     }
 
-    fn as_save_output(&self, world: &World) -> SaveOutput {
-        unimplemented!() // Can't be supported anymore
+    fn as_save_event_source<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        IntoSystem::into_system(move |mut events: EventReader<E>| {
+            let mut iter = events.read();
+            let event = iter.next()?;
+            if iter.next().is_some() {
+                warn!("multiple save request events received; only the first one is processed.");
+            }
+            Some(SaveWorld::<F>::into_file(event.path().to_owned()))
+        })
+    }
+
+    fn as_save_event_source_with_input<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        IntoSystem::into_system(
+            move |In(input): In<SaveInput>, mut events: EventReader<E>| {
+                let mut iter = events.read();
+                let event = iter.next()?;
+                if iter.next().is_some() {
+                    warn!(
+                        "multiple save request events received; only the first one is processed."
+                    );
+                }
+                Some(SaveWorld::<F> {
+                    input,
+                    ..SaveWorld::<F>::into_file(event.path().to_owned())
+                })
+            },
+        )
     }
 }
 
@@ -730,8 +857,43 @@ where
         IntoSystem::into_system(system.pipe(get_stream_from_event::<E>).pipe(write_stream))
     }
 
-    fn as_save_output(&self, world: &World) -> SaveOutput {
-        unimplemented!() // Can't be supported anymore
+    fn as_save_event_source<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        IntoSystem::into_system(move |mut events: EventReader<E>| {
+            let mut iter = events.read();
+            let event = iter.next()?;
+            if iter.next().is_some() {
+                warn!("multiple save request events received; only the first one is processed.");
+            }
+            Some(SaveWorld::<F>::into_stream(event.stream()))
+        })
+    }
+
+    fn as_save_event_source_with_input<F: QueryFilter>(
+        &self,
+    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
+    where
+        F: 'static + Send + Sync,
+    {
+        IntoSystem::into_system(
+            move |In(input): In<SaveInput>, mut events: EventReader<E>| {
+                let mut iter = events.read();
+                let event = iter.next()?;
+                if iter.next().is_some() {
+                    warn!(
+                        "multiple save request events received; only the first one is processed."
+                    );
+                }
+                Some(SaveWorld::<F> {
+                    input,
+                    ..SaveWorld::<F>::into_stream(event.stream())
+                })
+            },
+        )
     }
 }
 
@@ -871,7 +1033,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic] // Legacy events not supported anymore
     fn test_save_into_file_from_event() {
         pub const PATH: &str = "test_save_into_file_from_event.ron";
 
@@ -901,7 +1062,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic] // Legacy events not supported anymore
     fn test_save_into_stream_from_event() {
         pub const PATH: &str = "test_save_into_stream_from_event.ron";
 
