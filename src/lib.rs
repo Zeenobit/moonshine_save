@@ -126,17 +126,20 @@ where
 #[doc(hidden)]
 pub struct StaticFile(PathBuf);
 
+#[allow(deprecated)]
 impl Pipeline for StaticFile {}
 
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct StaticStream<S>(S);
 
+#[allow(deprecated)]
 impl<S: 'static + Send + Sync> Pipeline for StaticStream<S> {}
 
 #[doc(hidden)]
 pub struct FileFromResource<R>(PhantomData<R>);
 
+#[allow(deprecated)]
 impl<R: Resource> Pipeline for FileFromResource<R> {
     fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         pipeline
@@ -152,6 +155,7 @@ impl<R: Resource> Pipeline for FileFromResource<R> {
 #[doc(hidden)]
 pub struct StreamFromResource<R>(PhantomData<R>);
 
+#[allow(deprecated)]
 impl<R: Resource> Pipeline for StreamFromResource<R> {
     fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         pipeline
@@ -167,11 +171,13 @@ impl<R: Resource> Pipeline for StreamFromResource<R> {
 #[doc(hidden)]
 pub struct FileFromEvent<E>(PhantomData<E>);
 
+#[allow(deprecated)]
 impl<E: Event> Pipeline for FileFromEvent<E> {}
 
 #[doc(hidden)]
 pub struct StreamFromEvent<E>(PhantomData<E>);
 
+#[allow(deprecated)]
 impl<E: Event> Pipeline for StreamFromEvent<E> {}
 
 /// A trait used for mapping components during a save operation.
@@ -213,10 +219,6 @@ impl SceneMapper {
     pub fn map<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
         self.0.push(Box::new(ComponentMapperImpl::new(m)));
         self
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 
     pub(crate) fn apply(&mut self, mut entity: EntityWorldMut) {

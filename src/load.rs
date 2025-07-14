@@ -309,6 +309,7 @@ pub trait LoadPipeline: Pipeline {
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>>;
 }
 
+#[allow(deprecated)]
 impl LoadPipeline for StaticFile {
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
         let path = self.0.clone();
