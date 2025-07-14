@@ -4,114 +4,133 @@ use std::sync::{Arc, Mutex};
 
 use bevy_ecs::entity::EntityHashSet;
 use bevy_ecs::prelude::*;
+use moonshine_util::event::{AddSingleObserver, SingleEvent, SingleTrigger, TriggerSingle};
 
 /// A [`Component`] which marks its [`Entity`] to be saved.
 #[derive(Component, Default, Debug, Clone)]
 pub struct Save;
 
-pub trait SaveEvent: Event {
-    type Filter: QueryFilter;
-
-    fn is_entity_saved(&self, entity: Entity) -> bool;
-
-    fn create_mapper(&self) -> SceneMapper;
-
-    fn build_scene(
-        &self,
-        world: &mut World,
-        entities: impl Iterator<Item = Entity>,
-    ) -> DynamicScene;
-
-    fn output(&self) -> SaveOutput;
+pub trait TriggerSave: Sized {
+    fn trigger_save(self, event: impl SaveEvent);
 }
 
-#[derive(Event)]
-pub struct DefaultSaveEvent<F: QueryFilter = With<Save>> {
+impl TriggerSave for &mut Commands<'_, '_> {
+    fn trigger_save(self, event: impl SaveEvent) {
+        self.trigger_single(event);
+    }
+}
+
+pub trait SaveEvent: SingleEvent {
+    type Filter: QueryFilter;
+
+    fn unpack(self) -> (SaveInput, SaveOutput);
+}
+
+#[derive(Clone)]
+pub struct SaveInput {
+    /// A filter for selecting which entities should be saved.
+    ///
+    /// By default, all entities are selected.
     pub entities: EntityFilter,
+    /// A filter for selecting which resources should be saved.
+    ///
+    /// By default, no resources are selected. Most Bevy resources are not safely serializable.
     pub resources: SceneFilter,
+    /// A filter for selecting which components should be saved.
+    ///
+    /// By default, all serializable components are selected.
     pub components: SceneFilter,
+    /// A mapper for transforming components during the save process.
+    ///
+    /// See [`MapComponent`] for more information.
     pub mapper: SceneMapper,
+}
+
+impl Default for SaveInput {
+    fn default() -> Self {
+        SaveInput {
+            entities: EntityFilter::any(),
+            components: SceneFilter::allow_all(),
+            resources: SceneFilter::deny_all(),
+            mapper: SceneMapper::default(),
+        }
+    }
+}
+
+pub type DefaultSaveFilter = With<Save>;
+
+pub struct SaveWorld<F: QueryFilter = DefaultSaveFilter> {
+    pub input: SaveInput,
     pub output: SaveOutput,
     pub filter: PhantomData<F>,
 }
 
-impl<F: QueryFilter> DefaultSaveEvent<F> {
-    pub fn new(output: SaveOutput) -> Self {
+impl<F: QueryFilter> SaveWorld<F> {
+    pub fn new(input: SaveInput, output: SaveOutput) -> Self {
         Self {
+            input,
             output,
-            entities: EntityFilter::any(),
-            resources: SceneFilter::deny_all(),
-            components: SceneFilter::allow_all(),
-            mapper: SceneMapper::default(),
+            filter: PhantomData,
+        }
+    }
+
+    pub fn into_file(path: impl Into<PathBuf>) -> Self {
+        Self {
+            input: SaveInput::default(),
+            output: SaveOutput::file(path),
+            filter: PhantomData,
+        }
+    }
+
+    pub fn into_stream<S: SaveStream + 'static>(stream: S) -> Self {
+        Self {
+            input: SaveInput::default(),
+            output: SaveOutput::stream(stream),
             filter: PhantomData,
         }
     }
 
     pub fn include_resource<R: Resource>(mut self) -> Self {
-        self.resources = self.resources.allow::<R>();
+        self.input.resources = self.input.resources.allow::<R>();
         self
     }
 
     pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
-        self.resources = self.resources.allow_by_id(type_id);
+        self.input.resources = self.input.resources.allow_by_id(type_id);
         self
     }
 
     pub fn exclude_component<T: Component>(mut self) -> Self {
-        self.components = self.components.deny::<T>();
+        self.input.components = self.input.components.deny::<T>();
         self
     }
 
     pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
-        self.components = self.components.deny_by_id(type_id);
+        self.input.components = self.input.components.deny_by_id(type_id);
         self
     }
 
     pub fn map_component<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
-        self.mapper = self.mapper.map(m);
+        self.input.mapper = self.input.mapper.map(m);
         self
     }
 }
 
-impl<F: QueryFilter> SaveEvent for DefaultSaveEvent<F>
+impl<F: QueryFilter> SingleEvent for SaveWorld<F> where F: 'static + Send + Sync {}
+
+impl<F: QueryFilter> SaveEvent for SaveWorld<F>
 where
     F: 'static + Send + Sync,
 {
     type Filter = F;
 
-    fn is_entity_saved(&self, entity: Entity) -> bool {
-        match &self.entities {
-            EntityFilter::Allow(allow) => allow.contains(&entity),
-            EntityFilter::Block(block) => !block.contains(&entity),
-        }
-    }
-
-    fn create_mapper(&self) -> SceneMapper {
-        // TODO: Should be able to avoid this clone if the event is wraps a Mutex
-        self.mapper.clone()
-    }
-
-    fn build_scene(
-        &self,
-        world: &mut World,
-        entities: impl Iterator<Item = Entity>,
-    ) -> DynamicScene {
-        DynamicSceneBuilder::from_world(world)
-            .with_component_filter(self.components.clone())
-            .with_resource_filter(self.resources.clone())
-            .extract_resources()
-            .extract_entities(entities)
-            .build()
-    }
-
-    fn output(&self) -> SaveOutput {
-        // TODO: Should be able to avoid this clone if the event is wraps a Mutex
-        self.output.clone()
+    fn unpack(self) -> (SaveInput, SaveOutput) {
+        (self.input, self.output)
     }
 }
 
 /// A filter for selecting which [`Entity`]s within a [`World`].
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum EntityFilter {
     /// Select only the specified entities.
     Allow(EntityHashSet),
@@ -194,24 +213,54 @@ impl From<io::Error> for SaveError {
     }
 }
 
-fn save2<E: SaveEvent>(trigger: Trigger<E>, world: &mut World) {
-    let result = save_internal(trigger.event(), world);
+/// An [`Observer`] which saved the world when a [`SaveWorld`] event is triggered.
+pub fn save_on_default_event(trigger: SingleTrigger<SaveWorld>, world: &mut World) {
+    save_on(trigger, world);
+}
+
+/// An [`Observer`] which saved the world when the given [`SaveEvent`] is triggered.
+pub fn save_on<E: SaveEvent>(trigger: SingleTrigger<E>, world: &mut World) {
+    let event = trigger.event().consume().unwrap();
+    let result = save_world(event, world);
+    if let Err(why) = &result {
+        debug!("save failed: {why:?}");
+    }
     world.trigger(OnSave(result));
 }
 
-fn save_internal<E: SaveEvent>(event: &E, world: &mut World) -> Result<Saved, SaveError> {
+fn save_world<E: SaveEvent>(event: E, world: &mut World) -> Result<Saved, SaveError> {
+    // Filter
+    let (input, output) = event.unpack();
     let entities: Vec<_> = world
         .query_filtered::<Entity, E::Filter>()
         .iter(world)
-        .filter(|entity| event.is_entity_saved(*entity))
+        .filter(|entity| match &input.entities {
+            EntityFilter::Allow(allow) => allow.contains(entity),
+            EntityFilter::Block(block) => !block.contains(entity),
+        })
         .collect();
 
-    let mut mapper = event.create_mapper();
+    // Map
+    let mut mapper = input.mapper;
     for entity in entities.iter() {
         mapper.apply(world.entity_mut(*entity));
     }
-    let scene = event.build_scene(world, entities.iter().copied());
-    let result = match event.output() {
+
+    // Serialize
+    let scene = DynamicSceneBuilder::from_world(world)
+        .with_component_filter(input.components)
+        .with_resource_filter(input.resources)
+        .extract_resources()
+        .extract_entities(entities.iter().copied())
+        .build();
+
+    // Unmap
+    for entity in entities.iter() {
+        mapper.undo(world.entity_mut(*entity));
+    }
+
+    // Write
+    match output {
         SaveOutput::File(path) => {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -220,21 +269,17 @@ fn save_internal<E: SaveEvent>(event: &E, world: &mut World) -> Result<Saved, Sa
             let type_registry = world.resource::<AppTypeRegistry>().read();
             let data = scene.serialize(&type_registry)?;
             std::fs::write(&path, data.as_bytes())?;
-            info!("saved into file: {path:?}");
+            debug!("saved into file: {path:?}");
             Ok(Saved { scene })
         }
         SaveOutput::Stream(stream) => {
             let type_registry = world.resource::<AppTypeRegistry>().read();
             let data = scene.serialize(&type_registry)?;
             stream.lock().unwrap().write_all(data.as_bytes())?;
-            info!("saved into stream");
+            debug!("saved into stream");
             Ok(Saved { scene })
         }
-    };
-    for entity in entities.iter() {
-        mapper.undo(world.entity_mut(*entity));
     }
-    result
 }
 
 // ------------------
@@ -276,7 +321,8 @@ impl Plugin for SavePlugin {
             PreUpdate,
             remove_resource::<Saved>.in_set(SaveSystem::PostSave),
         )
-        .add_observer(save2::<DefaultSaveEvent<With<Save>>>);
+        .add_single_observer(save_on::<SaveWorld<DefaultSaveFilter>>)
+        .add_single_observer(save_on::<SaveWorld<()>>);
     }
 }
 
@@ -288,39 +334,6 @@ pub enum SaveSystem {
     Save,
     /// Runs after [`SaveSystem::Save`].
     PostSave,
-}
-
-#[deprecated]
-#[doc(hidden)]
-#[derive(Clone)]
-pub struct SaveInput {
-    /// A filter for selecting which entities should be saved.
-    ///
-    /// By default, all entities are selected.
-    pub entities: EntityFilter,
-    /// A filter for selecting which resources should be saved.
-    ///
-    /// By default, no resources are selected. Most Bevy resources are not safely serializable.
-    pub resources: SceneFilter,
-    /// A filter for selecting which components should be saved.
-    ///
-    /// By default, all serializable components are selected.
-    pub components: SceneFilter,
-    /// A mapper for transforming components during the save process.
-    ///
-    /// See [`MapComponent`] for more information.
-    pub mapper: SceneMapper,
-}
-
-impl Default for SaveInput {
-    fn default() -> Self {
-        SaveInput {
-            entities: EntityFilter::any(),
-            components: SceneFilter::allow_all(),
-            resources: SceneFilter::deny_all(),
-            mapper: SceneMapper::default(),
-        }
-    }
 }
 
 #[deprecated]
@@ -567,14 +580,8 @@ where
         let condition = p.condition();
         (move |world: &World, mut commands: Commands| {
             let output = p.as_save_output(world);
-            let event = DefaultSaveEvent::<F> {
-                entities: input.entities.clone(),
-                resources: input.resources.clone(),
-                components: input.components.clone(),
-                mapper: input.mapper.clone(),
-                ..DefaultSaveEvent::new(output)
-            };
-            commands.trigger(event);
+            let event = SaveWorld::<F>::new(input.clone(), output);
+            commands.trigger_single(event);
             p.clean(world, &mut commands);
         })
         .run_if(condition)
@@ -593,20 +600,13 @@ impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
     #[doc(hidden)]
     pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
         let Self { input_source, .. } = self;
-        let system = input_source.pipe(map_scene);
         let condition = p.condition();
-        system
+        input_source
             .pipe(
                 move |In(input): In<SaveInput>, world: &World, mut commands: Commands| {
                     let output = p.as_save_output(world);
-                    let event = DefaultSaveEvent::<With<Save>> {
-                        entities: input.entities,
-                        resources: input.resources,
-                        components: input.components,
-                        mapper: input.mapper,
-                        ..DefaultSaveEvent::new(output)
-                    };
-                    commands.trigger(event);
+                    let event = SaveWorld::<()>::new(input, output);
+                    commands.trigger_single(event);
                     p.clean(world, &mut commands);
                 },
             )
@@ -871,6 +871,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic] // Legacy events not supported anymore
     fn test_save_into_file_from_event() {
         pub const PATH: &str = "test_save_into_file_from_event.ron";
 
@@ -900,6 +901,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic] // Legacy events not supported anymore
     fn test_save_into_stream_from_event() {
         pub const PATH: &str = "test_save_into_stream_from_event.ron";
 
