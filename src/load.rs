@@ -48,6 +48,22 @@ use std::path::PathBuf;
 #[derive(Component, Default, Clone)]
 pub struct Unload;
 
+pub trait TriggerLoad {
+    fn trigger_load(self, event: impl LoadEvent);
+}
+
+impl TriggerLoad for &mut Commands<'_, '_> {
+    fn trigger_load(self, event: impl LoadEvent) {
+        self.trigger_single(event);
+    }
+}
+
+impl TriggerLoad for &mut World {
+    fn trigger_load(self, event: impl LoadEvent) {
+        self.trigger_single(event);
+    }
+}
+
 /// A [`QueryFilter`] which determines which entities should be unloaded before the load process begins.
 pub type DefaultUnloadFilter = Or<(With<Save>, With<Unload>)>;
 
@@ -85,6 +101,16 @@ impl<U: QueryFilter> LoadWorld<U> {
             mapper: self.mapper.map(m),
             ..self
         }
+    }
+}
+
+impl LoadWorld {
+    pub fn default_from_file(path: impl Into<PathBuf>) -> Self {
+        Self::from_file(path)
+    }
+
+    pub fn default_from_stream(stream: impl LoadStream) -> Self {
+        Self::from_stream(stream)
     }
 }
 

@@ -17,12 +17,13 @@ pub mod save;
 /// Common elements for saving/loading world state.
 pub mod prelude {
     pub use crate::load::{
-        load, LoadError, LoadMapComponent, LoadPlugin, LoadSystem, Loaded, OnLoad, Unload,
+        load_on, load_on_default_event, LoadError, LoadEvent, LoadPlugin, LoadWorld, Loaded,
+        OnLoad, TriggerLoad, Unload,
     };
 
     pub use crate::save::{
-        save, save_all, save_default, save_with, OnSave, Save, SaveError, SaveInput, SavePlugin,
-        SaveSystem, Saved,
+        save_on, save_on_default_event, OnSave, Save, SaveError, SaveEvent, SaveInput, SavePlugin,
+        SaveWorld, Saved, TriggerSave,
     };
 
     pub use bevy_ecs::{
@@ -30,7 +31,14 @@ pub mod prelude {
         reflect::ReflectMapEntities,
     };
 
-    pub use crate::{file_from_event, file_from_resource, static_file, GetFilePath};
+    // Legacy API:
+    #[allow(deprecated)]
+    pub use crate::{
+        file_from_event, file_from_resource,
+        load::{load, LoadMapComponent, LoadSystem},
+        save::{save, save_all, save_default, save_with, SaveSystem},
+        static_file, GetFilePath,
+    };
 }
 
 #[deprecated]
@@ -39,7 +47,6 @@ pub trait GetFilePath {
     fn path(&self) -> &Path;
 }
 
-#[deprecated]
 #[doc(hidden)]
 pub trait GetStaticStream: 'static + Send + Sync {
     type Stream: 'static + Send + Sync;
@@ -47,7 +54,6 @@ pub trait GetStaticStream: 'static + Send + Sync {
     fn stream() -> Self::Stream;
 }
 
-#[deprecated]
 #[doc(hidden)]
 pub trait GetStream: 'static + Send + Sync {
     type Stream: 'static + Send + Sync;
@@ -55,7 +61,6 @@ pub trait GetStream: 'static + Send + Sync {
     fn stream(&self) -> Self::Stream;
 }
 
-#[deprecated]
 #[doc(hidden)]
 pub trait Pipeline: 'static + Send + Sync {
     #[deprecated]
@@ -115,20 +120,17 @@ where
     StreamFromEvent(PhantomData::<E>)
 }
 
-#[deprecated]
 #[doc(hidden)]
 pub struct StaticFile(PathBuf);
 
 impl Pipeline for StaticFile {}
 
-#[deprecated]
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct StaticStream<S>(S);
 
 impl<S: 'static + Send + Sync> Pipeline for StaticStream<S> {}
 
-#[deprecated]
 #[doc(hidden)]
 pub struct FileFromResource<R>(PhantomData<R>);
 
@@ -144,7 +146,6 @@ impl<R: Resource> Pipeline for FileFromResource<R> {
     }
 }
 
-#[deprecated]
 #[doc(hidden)]
 pub struct StreamFromResource<R>(PhantomData<R>);
 
@@ -160,13 +161,11 @@ impl<R: Resource> Pipeline for StreamFromResource<R> {
     }
 }
 
-#[deprecated]
 #[doc(hidden)]
 pub struct FileFromEvent<E>(PhantomData<E>);
 
 impl<E: Event> Pipeline for FileFromEvent<E> {}
 
-#[deprecated]
 #[doc(hidden)]
 pub struct StreamFromEvent<E>(PhantomData<E>);
 

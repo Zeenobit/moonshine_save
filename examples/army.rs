@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use bevy::prelude::*;
 use bevy_ecs::entity::{EntityMapper, MapEntities};
 use moonshine_save::prelude::*;
@@ -20,9 +18,6 @@ fn main() {
         }),
         ..default()
     }))
-    // Save and Load plugins are independant.
-    // Usually, both are needed:
-    .add_plugins((SavePlugin, LoadPlugin))
     // Register game types for de/serialization
     .register_type::<Soldier>()
     .register_type::<SoldierWeapon>()
@@ -40,12 +35,9 @@ fn main() {
             save_button_clicked,
         ),
     )
-    // Add save/load pipelines:
-    .add_systems(
-        PreUpdate,
-        save_default().into(file_from_resource::<SaveRequest>()),
-    )
-    .add_systems(PreUpdate, load(file_from_resource::<LoadRequest>()))
+    // Add save/load observers:
+    .add_observer(save_on_default_event)
+    .add_observer(load_on_default_event)
     .run();
 }
 
@@ -290,7 +282,7 @@ fn save_button_clicked(
     mut commands: Commands,
 ) {
     if let Ok(Interaction::Pressed) = query.single() {
-        commands.insert_resource(SaveRequest);
+        commands.trigger_save(SaveWorld::default_into_file(SAVE_PATH));
     }
 }
 
@@ -299,26 +291,6 @@ fn load_button_clicked(
     mut commands: Commands,
 ) {
     if let Ok(Interaction::Pressed) = query.single() {
-        commands.insert_resource(LoadRequest);
-    }
-}
-
-/// A resource which is used to invoke the save system.
-#[derive(Resource)]
-struct SaveRequest;
-
-impl GetFilePath for SaveRequest {
-    fn path(&self) -> &Path {
-        SAVE_PATH.as_ref()
-    }
-}
-
-/// A resource which is used to invoke the load system.
-#[derive(Resource)]
-struct LoadRequest;
-
-impl GetFilePath for LoadRequest {
-    fn path(&self) -> &Path {
-        SAVE_PATH.as_ref()
+        commands.trigger_load(LoadWorld::default_from_file(SAVE_PATH));
     }
 }

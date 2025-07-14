@@ -20,6 +20,12 @@ impl TriggerSave for &mut Commands<'_, '_> {
     }
 }
 
+impl TriggerSave for &mut World {
+    fn trigger_save(self, event: impl SaveEvent) {
+        self.trigger_single(event);
+    }
+}
+
 pub trait SaveEvent: SingleEvent {
     type Filter: QueryFilter;
 
@@ -80,6 +86,26 @@ impl<F: QueryFilter> SaveWorld<F> {
     pub fn map_component<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
         self.input.mapper = self.input.mapper.map(m);
         self
+    }
+}
+
+impl SaveWorld {
+    pub fn default_into_file(path: impl Into<PathBuf>) -> Self {
+        Self::into_file(path)
+    }
+
+    pub fn default_into_stream(stream: impl SaveStream) -> Self {
+        Self::into_stream(stream)
+    }
+}
+
+impl SaveWorld<()> {
+    pub fn all_into_file(path: impl Into<PathBuf>) -> Self {
+        Self::into_file(path)
+    }
+
+    pub fn all_into_stream(stream: impl SaveStream) -> Self {
+        Self::into_stream(stream)
     }
 }
 
