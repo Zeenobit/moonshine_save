@@ -47,6 +47,7 @@ pub trait GetFilePath {
     fn path(&self) -> &Path;
 }
 
+#[deprecated]
 #[doc(hidden)]
 pub trait GetStaticStream: 'static + Send + Sync {
     type Stream: 'static + Send + Sync;
@@ -54,6 +55,7 @@ pub trait GetStaticStream: 'static + Send + Sync {
     fn stream() -> Self::Stream;
 }
 
+#[deprecated]
 #[doc(hidden)]
 pub trait GetStream: 'static + Send + Sync {
     type Stream: 'static + Send + Sync;
@@ -61,6 +63,7 @@ pub trait GetStream: 'static + Send + Sync {
     fn stream(&self) -> Self::Stream;
 }
 
+#[deprecated]
 #[doc(hidden)]
 pub trait Pipeline: 'static + Send + Sync {
     #[deprecated]

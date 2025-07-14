@@ -1,10 +1,28 @@
-use std::io::Write;
+use std::any::TypeId;
+use std::io::{self, Write};
+use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
+use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::entity::EntityHashSet;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryFilter;
+use bevy_ecs::schedule::ScheduleConfigs;
+use bevy_ecs::system::ScheduleSystem;
+use bevy_log::prelude::*;
+use bevy_scene::{ron, DynamicScene, DynamicSceneBuilder, SceneFilter};
+
 use moonshine_util::event::{AddSingleObserver, SingleEvent, SingleTrigger, TriggerSingle};
+use moonshine_util::system::*;
+
+use crate::{
+    FileFromEvent, FileFromResource, MapComponent, SceneMapper, StaticFile, StaticStream,
+    StreamFromEvent, StreamFromResource,
+};
+
+// Legacy API:
+#[allow(deprecated)]
+use crate::{GetFilePath, GetStaticStream, GetStream, Pipeline};
 
 /// A [`Component`] which marks its [`Entity`] to be saved.
 #[derive(Component, Default, Debug, Clone)]
@@ -309,31 +327,12 @@ fn save_world<E: SaveEvent>(event: E, world: &mut World) -> Result<Saved, SaveEr
 
 // ------------------
 
-use std::{
-    any::TypeId,
-    io::{self},
-    marker::PhantomData,
-};
-
-use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::schedule::ScheduleConfigs;
-use bevy_ecs::system::ScheduleSystem;
-use bevy_ecs::{prelude::*, query::QueryFilter};
-use bevy_log::prelude::*;
-use bevy_platform::collections::HashSet;
-use bevy_scene::{ron, DynamicScene, DynamicSceneBuilder, SceneFilter};
-use moonshine_util::system::*;
-
-use crate::{
-    FileFromEvent, FileFromResource, GetFilePath, GetStaticStream, GetStream, MapComponent,
-    Pipeline, SceneMapper, StaticFile, StaticStream, StreamFromEvent, StreamFromResource,
-};
-
 /// A [`Plugin`] which configures [`SaveSystem`] in [`PreUpdate`] schedule.
 pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
+        #[allow(deprecated)]
         app.configure_sets(
             PreUpdate,
             (
@@ -370,6 +369,7 @@ pub struct SavePipelineBuilder<F: QueryFilter> {
 
 #[deprecated]
 #[doc(hidden)]
+#[allow(deprecated)]
 pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
     SavePipelineBuilder {
         query: PhantomData,
@@ -379,55 +379,52 @@ pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
 
 #[deprecated]
 #[doc(hidden)]
+#[allow(deprecated)]
 pub fn save_default() -> SavePipelineBuilder<With<Save>> {
     save()
 }
 
 #[deprecated]
 #[doc(hidden)]
+#[allow(deprecated)]
 pub fn save_all() -> SavePipelineBuilder<()> {
     save()
 }
 
+#[allow(deprecated)]
 impl<F: QueryFilter> SavePipelineBuilder<F>
 where
     F: 'static + Send + Sync,
 {
-    #[deprecated]
     #[doc(hidden)]
     pub fn include_resource<R: Resource>(mut self) -> Self {
         self.input.resources = self.input.resources.allow::<R>();
         self
     }
 
-    #[deprecated]
     #[doc(hidden)]
     pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
         self.input.resources = self.input.resources.allow_by_id(type_id);
         self
     }
-    #[deprecated]
     #[doc(hidden)]
     pub fn exclude_component<T: Component>(mut self) -> Self {
         self.input.components = self.input.components.deny::<T>();
         self
     }
 
-    #[deprecated]
     #[doc(hidden)]
     pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
         self.input.components = self.input.components.deny_by_id(type_id);
         self
     }
 
-    #[deprecated]
     #[doc(hidden)]
     pub fn map_component<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
         self.input.mapper = self.input.mapper.map(m);
         self
     }
 
-    #[deprecated]
     #[doc(hidden)]
     pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
         let source = p.as_save_event_source();
@@ -452,6 +449,7 @@ pub struct DynamicSavePipelineBuilder<S: System<In = (), Out = SaveInput>> {
     input_source: S,
 }
 
+#[allow(deprecated)]
 impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
     #[deprecated]
     #[doc(hidden)]
@@ -474,6 +472,7 @@ impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
 
 #[deprecated]
 #[doc(hidden)]
+#[allow(deprecated)]
 pub fn save_with<S: IntoSystem<(), SaveInput, M>, M>(
     input_source: S,
 ) -> DynamicSavePipelineBuilder<S::System> {
@@ -484,6 +483,7 @@ pub fn save_with<S: IntoSystem<(), SaveInput, M>, M>(
 
 #[deprecated]
 #[doc(hidden)]
+#[allow(deprecated)]
 pub trait SavePipeline: Pipeline {
     fn as_save_event_source<F: QueryFilter>(
         &self,
@@ -498,6 +498,7 @@ pub trait SavePipeline: Pipeline {
         F: 'static + Send + Sync;
 }
 
+#[allow(deprecated)]
 impl SavePipeline for StaticFile {
     fn as_save_event_source<F: QueryFilter>(
         &self,
@@ -525,6 +526,7 @@ impl SavePipeline for StaticFile {
     }
 }
 
+#[allow(deprecated)]
 impl<S: GetStaticStream> SavePipeline for StaticStream<S>
 where
     S::Stream: Write,
@@ -553,6 +555,7 @@ where
     }
 }
 
+#[allow(deprecated)]
 impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
     fn as_save_event_source<F: QueryFilter>(
         &self,
@@ -580,6 +583,7 @@ impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
     }
 }
 
+#[allow(deprecated)]
 impl<R: GetStream + Resource> SavePipeline for StreamFromResource<R>
 where
     R::Stream: Write,
@@ -610,6 +614,7 @@ where
     }
 }
 
+#[allow(deprecated)]
 impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
     fn as_save_event_source<F: QueryFilter>(
         &self,
@@ -651,6 +656,7 @@ impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
     }
 }
 
+#[allow(deprecated)]
 impl<E: GetStream + Event> SavePipeline for StreamFromEvent<E>
 where
     E::Stream: Write,

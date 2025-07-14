@@ -1,8 +1,28 @@
-use bevy_ecs::prelude::*;
-use moonshine_util::event::{SingleEvent, SingleTrigger, TriggerSingle};
 use std::io::{self, Read};
 use std::marker::PhantomData;
 use std::path::PathBuf;
+
+use serde::de::DeserializeSeed;
+
+use bevy_app::{App, Plugin, PreUpdate};
+use bevy_ecs::entity::EntityHashMap;
+use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryFilter;
+use bevy_ecs::schedule::ScheduleConfigs;
+use bevy_ecs::system::ScheduleSystem;
+use bevy_log::prelude::*;
+use bevy_scene::{ron, serde::SceneDeserializer, SceneSpawnError};
+
+use moonshine_util::event::{SingleEvent, SingleTrigger, TriggerSingle};
+use moonshine_util::system::*;
+
+// Legacy API:
+#[allow(deprecated)]
+use crate::{
+    save::{Save, SaveSystem},
+    FileFromEvent, FileFromResource, GetFilePath, GetStaticStream, GetStream, MapComponent,
+    Pipeline, SceneMapper, StaticFile, StaticStream, StreamFromEvent, StreamFromResource,
+};
 
 /// A [`Component`] which marks its [`Entity`] to be despawned prior to load.
 ///
@@ -238,29 +258,12 @@ fn load_world<E: LoadEvent>(event: E, world: &mut World) -> Result<Loaded, LoadE
     Ok(Loaded { entity_map })
 }
 
-// ------------------------------
-
-use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::entity::EntityHashMap;
-use bevy_ecs::query::QueryFilter;
-use bevy_ecs::schedule::ScheduleConfigs;
-use bevy_ecs::system::ScheduleSystem;
-use bevy_log::prelude::*;
-use bevy_scene::{ron, serde::SceneDeserializer, SceneSpawnError};
-use moonshine_util::system::*;
-use serde::de::DeserializeSeed;
-
-use crate::{
-    save::{Save, SaveSystem, Saved},
-    FileFromEvent, FileFromResource, GetFilePath, MapComponent, Pipeline, SceneMapper, StaticFile,
-};
-use crate::{GetStaticStream, GetStream, StaticStream, StreamFromEvent, StreamFromResource};
-
 /// A [`Plugin`] which configures [`LoadSystem`] in [`PreUpdate`] schedule.
 pub struct LoadPlugin;
 
 impl Plugin for LoadPlugin {
     fn build(&self, app: &mut App) {
+        #[allow(deprecated)]
         app.configure_sets(
             PreUpdate,
             (
@@ -297,6 +300,7 @@ pub struct Loaded {
 
 #[deprecated]
 #[doc(hidden)]
+#[allow(deprecated)]
 pub trait LoadPipeline: Pipeline {
     fn mapper(&self) -> Option<SceneMapper> {
         None
@@ -312,6 +316,7 @@ impl LoadPipeline for StaticFile {
     }
 }
 
+#[allow(deprecated)]
 impl<S: GetStaticStream> LoadPipeline for StaticStream<S>
 where
     S::Stream: Read,
@@ -321,6 +326,7 @@ where
     }
 }
 
+#[allow(deprecated)]
 impl<R> LoadPipeline for FileFromResource<R>
 where
     R: Resource + GetFilePath,
@@ -330,6 +336,7 @@ where
     }
 }
 
+#[allow(deprecated)]
 impl<R: GetStream + Resource> LoadPipeline for StreamFromResource<R>
 where
     R::Stream: Read,
@@ -341,6 +348,7 @@ where
     }
 }
 
+#[allow(deprecated)]
 impl<E> LoadPipeline for FileFromEvent<E>
 where
     E: Event + GetFilePath,
@@ -357,6 +365,7 @@ where
     }
 }
 
+#[allow(deprecated)]
 impl<E: GetStream + Event> LoadPipeline for StreamFromEvent<E>
 where
     E::Stream: Read,
@@ -375,6 +384,7 @@ where
 
 #[deprecated]
 #[doc(hidden)]
+#[allow(deprecated)]
 pub fn load(p: impl LoadPipeline) -> ScheduleConfigs<ScheduleSystem> {
     let source = p.as_load_event_source();
     let mapper = p.mapper();
@@ -392,14 +402,14 @@ pub fn load(p: impl LoadPipeline) -> ScheduleConfigs<ScheduleSystem> {
         .in_set(LoadSystem::Load)
 }
 
-#[deprecated]
 #[doc(hidden)]
+#[allow(deprecated)]
 pub trait LoadMapComponent: Sized {
-    #[deprecated]
     #[doc(hidden)]
     fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self>;
 }
 
+#[allow(deprecated)]
 impl<P: Pipeline> LoadMapComponent for P {
     fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self> {
         LoadPipelineBuilder {
@@ -416,8 +426,8 @@ pub struct LoadPipelineBuilder<P> {
     mapper: SceneMapper,
 }
 
+#[allow(deprecated)]
 impl<P> LoadPipelineBuilder<P> {
-    #[deprecated]
     #[doc(hidden)]
     pub fn map_component<U: Component>(self, m: impl MapComponent<U>) -> Self {
         Self {
@@ -427,12 +437,14 @@ impl<P> LoadPipelineBuilder<P> {
     }
 }
 
+#[allow(deprecated)]
 impl<P: Pipeline> Pipeline for LoadPipelineBuilder<P> {
     fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         self.pipeline.finish(pipeline)
     }
 }
 
+#[allow(deprecated)]
 impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
     fn mapper(&self) -> Option<SceneMapper> {
         Some(self.mapper.clone())
