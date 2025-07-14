@@ -1,32 +1,248 @@
-//! Elements related to saving world state.
-//!
-//! # Example
-//! ```
-//! use bevy::prelude::*;
-//! use moonshine_save::prelude::*;
-//!
-//! #[derive(Component, Default, Reflect)]
-//! #[reflect(Component)]
-//! struct Data(u32);
-//!
-//! let mut app = App::new();
-//! app.add_plugins((MinimalPlugins, SavePlugin))
-//!     .register_type::<Data>()
-//!     .add_systems(PreUpdate, save_default().into(static_file("example.ron")));
-//!
-//! app.world_mut().spawn((Data(12), Save));
-//! app.update();
-//!
-//! let data = std::fs::read_to_string("example.ron").unwrap();
-//! # assert!(data.contains("(12)"));
-//! # std::fs::remove_file("example.ron");
-//! ```
+use std::io::Write;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use bevy_ecs::entity::EntityHashSet;
+use bevy_ecs::prelude::*;
+
+/// A [`Component`] which marks its [`Entity`] to be saved.
+#[derive(Component, Default, Debug, Clone)]
+pub struct Save;
+
+pub trait SaveEvent: Event {
+    type Filter: QueryFilter;
+
+    fn is_entity_saved(&self, entity: Entity) -> bool;
+
+    fn create_mapper(&self) -> SceneMapper;
+
+    fn build_scene(
+        &self,
+        world: &mut World,
+        entities: impl Iterator<Item = Entity>,
+    ) -> DynamicScene;
+
+    fn output(&self) -> SaveOutput;
+}
+
+#[derive(Event)]
+pub struct DefaultSaveEvent<F: QueryFilter = With<Save>> {
+    pub entities: EntityFilter,
+    pub resources: SceneFilter,
+    pub components: SceneFilter,
+    pub mapper: SceneMapper,
+    pub output: SaveOutput,
+    pub filter: PhantomData<F>,
+}
+
+impl<F: QueryFilter> DefaultSaveEvent<F> {
+    pub fn new(output: SaveOutput) -> Self {
+        Self {
+            output,
+            entities: EntityFilter::any(),
+            resources: SceneFilter::deny_all(),
+            components: SceneFilter::allow_all(),
+            mapper: SceneMapper::default(),
+            filter: PhantomData,
+        }
+    }
+
+    pub fn include_resource<R: Resource>(mut self) -> Self {
+        self.resources = self.resources.allow::<R>();
+        self
+    }
+
+    pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
+        self.resources = self.resources.allow_by_id(type_id);
+        self
+    }
+
+    pub fn exclude_component<T: Component>(mut self) -> Self {
+        self.components = self.components.deny::<T>();
+        self
+    }
+
+    pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
+        self.components = self.components.deny_by_id(type_id);
+        self
+    }
+
+    pub fn map_component<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
+        self.mapper = self.mapper.map(m);
+        self
+    }
+}
+
+impl<F: QueryFilter> SaveEvent for DefaultSaveEvent<F>
+where
+    F: 'static + Send + Sync,
+{
+    type Filter = F;
+
+    fn is_entity_saved(&self, entity: Entity) -> bool {
+        match &self.entities {
+            EntityFilter::Allow(allow) => allow.contains(&entity),
+            EntityFilter::Block(block) => !block.contains(&entity),
+        }
+    }
+
+    fn create_mapper(&self) -> SceneMapper {
+        // TODO: Should be able to avoid this clone if the event is wraps a Mutex
+        self.mapper.clone()
+    }
+
+    fn build_scene(
+        &self,
+        world: &mut World,
+        entities: impl Iterator<Item = Entity>,
+    ) -> DynamicScene {
+        DynamicSceneBuilder::from_world(world)
+            .with_component_filter(self.components.clone())
+            .with_resource_filter(self.resources.clone())
+            .extract_resources()
+            .extract_entities(entities)
+            .build()
+    }
+
+    fn output(&self) -> SaveOutput {
+        // TODO: Should be able to avoid this clone if the event is wraps a Mutex
+        self.output.clone()
+    }
+}
+
+/// A filter for selecting which [`Entity`]s within a [`World`].
+#[derive(Clone)]
+pub enum EntityFilter {
+    /// Select only the specified entities.
+    Allow(EntityHashSet),
+    /// Select all entities except the specified ones.
+    Block(EntityHashSet),
+}
+
+impl EntityFilter {
+    /// Creates a new [`EntityFilter`] which allows all entities.
+    pub fn any() -> Self {
+        Self::Block(EntityHashSet::new())
+    }
+
+    /// Creates a new [`EntityFilter`] which allows only the specified entities.
+    pub fn allow(entities: impl IntoIterator<Item = Entity>) -> Self {
+        Self::Allow(entities.into_iter().collect())
+    }
+
+    /// Creates a new [`EntityFilter`] which blocks the specified entities.
+    pub fn block(entities: impl IntoIterator<Item = Entity>) -> Self {
+        Self::Block(entities.into_iter().collect())
+    }
+}
+
+impl Default for EntityFilter {
+    fn default() -> Self {
+        Self::any()
+    }
+}
+
+#[derive(Clone)]
+pub enum SaveOutput {
+    File(PathBuf),
+    Stream(Arc<Mutex<dyn SaveStream>>),
+}
+
+impl SaveOutput {
+    pub fn file(path: impl Into<PathBuf>) -> Self {
+        Self::File(path.into())
+    }
+
+    pub fn stream<S: SaveStream + 'static>(stream: S) -> Self {
+        Self::Stream(Arc::new(Mutex::new(stream)))
+    }
+}
+
+pub trait SaveStream: Write
+where
+    Self: 'static + Send + Sync,
+{
+}
+
+impl<S: Write> SaveStream for S where S: 'static + Send + Sync {}
+
+/// Contains the saved [`World`] data as a [`DynamicScene`].
+#[derive(Resource)] // TODO: Should be removed after migration
+pub struct Saved {
+    /// The saved [`DynamicScene`] to be serialized.
+    pub scene: DynamicScene,
+}
+
+#[derive(Event)]
+pub struct OnSave(pub Result<Saved, SaveError>);
+
+#[derive(Debug)]
+pub enum SaveError {
+    Ron(ron::Error),
+    Io(io::Error),
+}
+
+impl From<ron::Error> for SaveError {
+    fn from(e: ron::Error) -> Self {
+        Self::Ron(e)
+    }
+}
+
+impl From<io::Error> for SaveError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+fn save2<E: SaveEvent>(trigger: Trigger<E>, world: &mut World) {
+    let result = save_internal(trigger.event(), world);
+    world.trigger(OnSave(result));
+}
+
+fn save_internal<E: SaveEvent>(event: &E, world: &mut World) -> Result<Saved, SaveError> {
+    let entities: Vec<_> = world
+        .query_filtered::<Entity, E::Filter>()
+        .iter(world)
+        .filter(|entity| event.is_entity_saved(*entity))
+        .collect();
+
+    let mut mapper = event.create_mapper();
+    for entity in entities.iter() {
+        mapper.apply(world.entity_mut(*entity));
+    }
+    let scene = event.build_scene(world, entities.iter().copied());
+    let result = match event.output() {
+        SaveOutput::File(path) => {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+
+            let type_registry = world.resource::<AppTypeRegistry>().read();
+            let data = scene.serialize(&type_registry)?;
+            std::fs::write(&path, data.as_bytes())?;
+            info!("saved into file: {path:?}");
+            Ok(Saved { scene })
+        }
+        SaveOutput::Stream(stream) => {
+            let type_registry = world.resource::<AppTypeRegistry>().read();
+            let data = scene.serialize(&type_registry)?;
+            stream.lock().unwrap().write_all(data.as_bytes())?;
+            info!("saved into stream");
+            Ok(Saved { scene })
+        }
+    };
+    for entity in entities.iter() {
+        mapper.undo(world.entity_mut(*entity));
+    }
+    result
+}
+
+// ------------------
 
 use std::{
     any::TypeId,
-    io::{self, Write},
+    io::{self},
     marker::PhantomData,
-    path::PathBuf,
 };
 
 use bevy_app::{App, Plugin, PreUpdate};
@@ -59,7 +275,8 @@ impl Plugin for SavePlugin {
         .add_systems(
             PreUpdate,
             remove_resource::<Saved>.in_set(SaveSystem::PostSave),
-        );
+        )
+        .add_observer(save2::<DefaultSaveEvent<With<Save>>>);
     }
 }
 
@@ -71,79 +288,6 @@ pub enum SaveSystem {
     Save,
     /// Runs after [`SaveSystem::Save`].
     PostSave,
-}
-
-/// Contains the saved [`World`] data as a [`DynamicScene`].
-#[derive(Resource)] // TODO: Should be removed after migration
-pub struct Saved {
-    /// The saved [`DynamicScene`] to be serialized.
-    pub scene: DynamicScene,
-    /// The [`SceneMapper`] used for the save process.
-    pub mapper: SceneMapper,
-}
-
-/// An [`Event`] which is triggered when the save process is completed successfully.
-///
-/// # Usage
-/// This event does not carry any information about the saved data.
-///
-/// If you need access to saved data (for further processing), query the [`Saved`]
-/// resource instead during [`PostSave`](LoadSystem::PostSave).
-#[derive(Event)]
-pub struct OnSaved(Saved);
-
-/// A [`Component`] which marks its [`Entity`] to be saved.
-#[derive(Component, Default, Clone)]
-pub struct Save;
-
-/// An error which indicates a failure during the save process.
-#[derive(Debug)]
-pub enum SaveError {
-    /// Indicates a failure during serialization. Check to ensure all saved components are serializable.
-    Ron(ron::Error),
-    /// Indicates a failure to write saved data into the destination.
-    Io(io::Error),
-}
-
-impl From<ron::Error> for SaveError {
-    fn from(e: ron::Error) -> Self {
-        Self::Ron(e)
-    }
-}
-
-impl From<io::Error> for SaveError {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
-    }
-}
-
-/// A filter for selecting which [`Entity`]s within a [`World`].
-#[derive(Default, Clone)]
-pub enum EntityFilter {
-    /// Select all entities.
-    #[default]
-    Any,
-    /// Select only the specified entities.
-    Allow(HashSet<Entity>),
-    /// Select all entities except the specified ones.
-    Block(HashSet<Entity>),
-}
-
-impl EntityFilter {
-    /// Creates a new [`EntityFilter`] which allows all entities.
-    pub fn any() -> Self {
-        Self::Any
-    }
-
-    /// Creates a new [`EntityFilter`] which allows only the specified entities.
-    pub fn allow(entities: impl IntoIterator<Item = Entity>) -> Self {
-        Self::Allow(entities.into_iter().collect())
-    }
-
-    /// Creates a new [`EntityFilter`] which blocks the specified entities.
-    pub fn block(entities: impl IntoIterator<Item = Entity>) -> Self {
-        Self::Block(entities.into_iter().collect())
-    }
 }
 
 #[deprecated]
@@ -194,13 +338,6 @@ pub fn filter<F: 'static + QueryFilter>(
 pub fn map_scene(In(mut input): In<SaveInput>, world: &mut World) -> SaveInput {
     if !input.mapper.is_empty() {
         match &input.entities {
-            EntityFilter::Any => {
-                let entities: Vec<Entity> =
-                    world.iter_entities().map(|entity| entity.id()).collect();
-                for entity in entities {
-                    input.mapper.apply(world.entity_mut(entity));
-                }
-            }
             EntityFilter::Allow(entities) => {
                 for entity in entities {
                     input.mapper.apply(world.entity_mut(*entity));
@@ -228,21 +365,21 @@ pub fn save_scene(In(input): In<SaveInput>, world: &World) -> Saved {
         .with_resource_filter(input.resources)
         .extract_resources();
     match input.entities {
-        EntityFilter::Any => {}
         EntityFilter::Allow(entities) => {
             builder = builder.extract_entities(entities.into_iter());
         }
         EntityFilter::Block(entities) => {
-            builder =
-                builder.extract_entities(world.iter_entities().filter_map(|entity| {
+            if !entities.is_empty() {
+                builder = builder.extract_entities(world.iter_entities().filter_map(|entity| {
                     (!entities.contains(&entity.id())).then_some(entity.id())
                 }));
+            }
         }
     }
     let scene = builder.build();
     Saved {
         scene,
-        mapper: input.mapper,
+        //mapper: input.mapper,
     }
 }
 
@@ -294,11 +431,11 @@ pub fn unmap_scene(
     world: &mut World,
 ) -> Result<Saved, SaveError> {
     if let Ok(saved) = &mut result {
-        if !saved.mapper.is_empty() {
-            for entity in saved.scene.entities.iter().map(|e| e.entity) {
-                saved.mapper.undo(world.entity_mut(entity));
-            }
-        }
+        // if !saved.mapper.is_empty() {
+        //     for entity in saved.scene.entities.iter().map(|e| e.entity) {
+        //         saved.mapper.undo(world.entity_mut(entity));
+        //     }
+        // }
     }
     result
 }
@@ -387,7 +524,7 @@ pub fn save_all() -> SavePipelineBuilder<()> {
 
 impl<F: QueryFilter> SavePipelineBuilder<F>
 where
-    F: 'static,
+    F: 'static + Send + Sync,
 {
     #[deprecated]
     #[doc(hidden)]
@@ -427,16 +564,31 @@ where
     #[doc(hidden)]
     pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
         let Self { input, .. } = self;
-        let system = (move || input.clone())
-            .pipe(filter::<F>)
-            .pipe(map_scene)
-            .pipe(save_scene);
-        let system = p
-            .save(IntoSystem::into_system(system))
-            .pipe(unmap_scene)
-            .pipe(insert_saved);
-        p.finish(IntoSystem::into_system(system))
-            .in_set(SaveSystem::Save)
+        let condition = p.condition();
+        (move |world: &World, mut commands: Commands| {
+            let output = p.as_save_output(world);
+            let event = DefaultSaveEvent::<F> {
+                entities: input.entities.clone(),
+                resources: input.resources.clone(),
+                components: input.components.clone(),
+                mapper: input.mapper.clone(),
+                ..DefaultSaveEvent::new(p.as_save_output(world))
+            };
+            commands.trigger(event);
+            p.clean(world, &mut commands);
+        })
+        .run_if(condition)
+        .in_set(SaveSystem::Save)
+        // let system = (move || input.clone())
+        //     .pipe(filter::<F>)
+        //     .pipe(map_scene)
+        //     .pipe(save_scene);
+        // let system = p
+        //     .save(IntoSystem::into_system(system))
+        //     .pipe(unmap_scene)
+        //     .pipe(insert_saved);
+        // p.finish(IntoSystem::into_system(system))
+        //     .in_set(SaveSystem::Save)
     }
 }
 
@@ -480,6 +632,8 @@ pub trait SavePipeline: Pipeline {
         &self,
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>>;
+
+    fn as_save_output(&self, world: &World) -> SaveOutput;
 }
 
 impl SavePipeline for StaticFile {
@@ -488,6 +642,10 @@ impl SavePipeline for StaticFile {
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
         IntoSystem::into_system(system.pipe(write_static_file(self.0.clone())))
+    }
+
+    fn as_save_output(&self, _: &World) -> SaveOutput {
+        SaveOutput::file(&self.0)
     }
 }
 
@@ -505,6 +663,10 @@ where
                 .pipe(write_stream),
         )
     }
+
+    fn as_save_output(&self, _: &World) -> SaveOutput {
+        SaveOutput::stream(S::stream())
+    }
 }
 
 impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
@@ -513,6 +675,11 @@ impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
         IntoSystem::into_system(system.pipe(get_file_from_resource::<R>).pipe(write_file))
+    }
+
+    fn as_save_output(&self, world: &World) -> SaveOutput {
+        let resource = world.resource::<R>();
+        SaveOutput::file(resource.path())
     }
 }
 
@@ -530,6 +697,11 @@ where
                 .pipe(write_stream),
         )
     }
+
+    fn as_save_output(&self, world: &World) -> SaveOutput {
+        let resource = world.resource::<R>();
+        SaveOutput::stream(resource.stream())
+    }
 }
 
 impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
@@ -538,6 +710,10 @@ impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
         IntoSystem::into_system(system.pipe(get_file_from_event::<E>).pipe(write_file))
+    }
+
+    fn as_save_output(&self, world: &World) -> SaveOutput {
+        unimplemented!() // Can't be supported anymore
     }
 }
 
@@ -550,6 +726,10 @@ where
         system: impl System<In = (), Out = Saved>,
     ) -> impl System<In = (), Out = Result<Saved, SaveError>> {
         IntoSystem::into_system(system.pipe(get_stream_from_event::<E>).pipe(write_stream))
+    }
+
+    fn as_save_output(&self, world: &World) -> SaveOutput {
+        unimplemented!() // Can't be supported anymore
     }
 }
 
@@ -582,7 +762,7 @@ mod tests {
         let mut app = app();
         app.add_systems(PreUpdate, save_default().into(static_file(PATH)));
 
-        app.add_observer(|_: Trigger<OnSaved>, mut commands: Commands| {
+        app.add_observer(|_: Trigger<OnSave>, mut commands: Commands| {
             commands.insert_resource(EventTriggered);
         });
 

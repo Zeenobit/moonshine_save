@@ -299,7 +299,7 @@ impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
         IntoSystem::into_system(self.pipeline.load().pipe(
             move |In(saved): In<Result<Saved, LoadError>>| {
                 saved.map(|saved| Saved {
-                    mapper: mapper.clone(),
+                    //mapper: mapper.clone(),
                     ..saved
                 })
             },
@@ -325,7 +325,7 @@ pub fn read_static_file(
         info!("loaded from file: {path:?}");
         Ok(Saved {
             scene,
-            mapper: mapper.clone(),
+            //mapper: mapper.clone(),
         })
     }
 }
@@ -346,7 +346,7 @@ pub fn read_file(
     info!("loaded from file: {path:?}");
     Ok(Saved {
         scene,
-        mapper: Default::default(),
+        //mapper: Default::default(),
     })
 }
 
@@ -367,7 +367,7 @@ pub fn read_stream<S: Read>(
     info!("loaded from stream");
     Ok(Saved {
         scene,
-        mapper: Default::default(),
+        //mapper: Default::default(),
     })
 }
 
@@ -400,16 +400,16 @@ pub fn write_to_world(
     In(result): In<Result<Saved, LoadError>>,
     world: &mut World,
 ) -> Result<Loaded, LoadError> {
-    let Saved { scene, mut mapper } = result?;
+    let Saved { scene } = result?;
     let mut entity_map = EntityHashMap::default();
     scene.write_to_world(world, &mut entity_map)?;
-    if !mapper.is_empty() {
-        for entity in entity_map.values() {
-            if let Ok(entity) = world.get_entity_mut(*entity) {
-                mapper.replace(entity);
-            }
-        }
-    }
+    // if !mapper.is_empty() {
+    //     for entity in entity_map.values() {
+    //         if let Ok(entity) = world.get_entity_mut(*entity) {
+    //             mapper.replace(entity);
+    //         }
+    //     }
+    // }
     Ok(Loaded { entity_map })
 }
 

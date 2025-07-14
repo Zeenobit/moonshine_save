@@ -1,10 +1,10 @@
 #![doc = include_str!("../README.md")]
-#![warn(missing_docs)]
+//#![warn(missing_docs)]
 
-use std::{
-    marker::PhantomData,
-    path::{Path, PathBuf},
-};
+// -------------------------
+
+use std::path::PathBuf;
+use std::{marker::PhantomData, path::Path};
 
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleConfigs;
@@ -21,7 +21,7 @@ pub mod prelude {
     };
 
     pub use crate::save::{
-        save, save_all, save_default, save_with, OnSaved, Save, SaveError, SaveInput, SavePlugin,
+        save, save_all, save_default, save_with, OnSave, Save, SaveError, SaveInput, SavePlugin,
         SaveSystem, Saved,
     };
 
@@ -63,6 +63,12 @@ pub trait Pipeline: 'static + Send + Sync {
     fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         pipeline.into_configs()
     }
+
+    fn condition(&self) -> impl ReadOnlySystem<In = (), Out = bool> {
+        IntoSystem::into_system(|| true)
+    }
+
+    fn clean(&self, _world: &World, _commands: &mut Commands) {}
 }
 
 #[deprecated]
@@ -136,6 +142,14 @@ impl<R: Resource> Pipeline for FileFromResource<R> {
             .pipe(remove_resource::<R>)
             .run_if(has_resource::<R>)
     }
+
+    fn condition(&self) -> impl ReadOnlySystem<In = (), Out = bool> {
+        IntoSystem::into_system(|res: Option<Res<R>>| res.is_some())
+    }
+
+    fn clean(&self, _world: &World, commands: &mut Commands) {
+        commands.remove_resource::<R>();
+    }
 }
 
 #[deprecated]
@@ -147,6 +161,14 @@ impl<R: Resource> Pipeline for StreamFromResource<R> {
         pipeline
             .pipe(remove_resource::<R>)
             .run_if(has_resource::<R>)
+    }
+
+    fn condition(&self) -> impl ReadOnlySystem<In = (), Out = bool> {
+        IntoSystem::into_system(|res: Option<Res<R>>| res.is_some())
+    }
+
+    fn clean(&self, _world: &World, commands: &mut Commands) {
+        commands.remove_resource::<R>();
     }
 }
 
