@@ -572,23 +572,13 @@ where
                 resources: input.resources.clone(),
                 components: input.components.clone(),
                 mapper: input.mapper.clone(),
-                ..DefaultSaveEvent::new(p.as_save_output(world))
+                ..DefaultSaveEvent::new(output)
             };
             commands.trigger(event);
             p.clean(world, &mut commands);
         })
         .run_if(condition)
         .in_set(SaveSystem::Save)
-        // let system = (move || input.clone())
-        //     .pipe(filter::<F>)
-        //     .pipe(map_scene)
-        //     .pipe(save_scene);
-        // let system = p
-        //     .save(IntoSystem::into_system(system))
-        //     .pipe(unmap_scene)
-        //     .pipe(insert_saved);
-        // p.finish(IntoSystem::into_system(system))
-        //     .in_set(SaveSystem::Save)
     }
 }
 
@@ -603,12 +593,24 @@ impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
     #[doc(hidden)]
     pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
         let Self { input_source, .. } = self;
-        let system = input_source.pipe(map_scene).pipe(save_scene);
-        let system = p
-            .save(IntoSystem::into_system(system))
-            .pipe(unmap_scene)
-            .pipe(insert_saved);
-        p.finish(IntoSystem::into_system(system))
+        let system = input_source.pipe(map_scene);
+        let condition = p.condition();
+        system
+            .pipe(
+                move |In(input): In<SaveInput>, world: &World, mut commands: Commands| {
+                    let output = p.as_save_output(world);
+                    let event = DefaultSaveEvent::<With<Save>> {
+                        entities: input.entities,
+                        resources: input.resources,
+                        components: input.components,
+                        mapper: input.mapper,
+                        ..DefaultSaveEvent::new(output)
+                    };
+                    commands.trigger(event);
+                    p.clean(world, &mut commands);
+                },
+            )
+            .run_if(condition)
             .in_set(SaveSystem::Save)
     }
 }
