@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
-//#![warn(missing_docs)]
-
-// -------------------------
+#![allow(deprecated)] // TODO: Remove deprecated code
+#![warn(missing_docs)]
 
 use std::path::PathBuf;
 use std::{marker::PhantomData, path::Path};
@@ -11,7 +10,10 @@ use bevy_ecs::schedule::ScheduleConfigs;
 use bevy_ecs::system::ScheduleSystem;
 use moonshine_util::system::{has_resource, remove_resource};
 
+/// Types, traits, and functions related to loading.
 pub mod load;
+
+/// Types, traits, and functions related to saving.
 pub mod save;
 
 /// Common elements for saving/loading world state.
@@ -32,7 +34,6 @@ pub mod prelude {
     };
 
     // Legacy API:
-    #[allow(deprecated)]
     pub use crate::{
         file_from_event, file_from_resource,
         load::{load, LoadMapComponent, LoadSystem},
@@ -126,20 +127,17 @@ where
 #[doc(hidden)]
 pub struct StaticFile(PathBuf);
 
-#[allow(deprecated)]
 impl Pipeline for StaticFile {}
 
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct StaticStream<S>(S);
 
-#[allow(deprecated)]
 impl<S: 'static + Send + Sync> Pipeline for StaticStream<S> {}
 
 #[doc(hidden)]
 pub struct FileFromResource<R>(PhantomData<R>);
 
-#[allow(deprecated)]
 impl<R: Resource> Pipeline for FileFromResource<R> {
     fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         pipeline
@@ -155,7 +153,6 @@ impl<R: Resource> Pipeline for FileFromResource<R> {
 #[doc(hidden)]
 pub struct StreamFromResource<R>(PhantomData<R>);
 
-#[allow(deprecated)]
 impl<R: Resource> Pipeline for StreamFromResource<R> {
     fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         pipeline
@@ -171,13 +168,11 @@ impl<R: Resource> Pipeline for StreamFromResource<R> {
 #[doc(hidden)]
 pub struct FileFromEvent<E>(PhantomData<E>);
 
-#[allow(deprecated)]
 impl<E: Event> Pipeline for FileFromEvent<E> {}
 
 #[doc(hidden)]
 pub struct StreamFromEvent<E>(PhantomData<E>);
 
-#[allow(deprecated)]
 impl<E: Event> Pipeline for StreamFromEvent<E> {}
 
 /// A trait used for mapping components during a save operation.

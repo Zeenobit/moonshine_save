@@ -21,14 +21,16 @@ use crate::{
 };
 
 // Legacy API:
-#[allow(deprecated)]
 use crate::{GetFilePath, GetStaticStream, GetStream, Pipeline};
 
 /// A [`Component`] which marks its [`Entity`] to be saved.
 #[derive(Component, Default, Debug, Clone)]
 pub struct Save;
 
+/// A trait used to trigger a [`SaveEvent`] via [`Commands`] or [`World`].
 pub trait TriggerSave {
+    /// Triggers the given [`SaveEvent`].
+    #[doc(alias = "trigger_single")]
     fn trigger_save(self, event: impl SaveEvent);
 }
 
@@ -44,19 +46,33 @@ impl TriggerSave for &mut World {
     }
 }
 
+/// A [`SingleEvent`] which starts the save process with the given parameters.
+///
+/// See also:
+/// - [`trigger_save`](TriggerSave::trigger_save)
+/// - [`trigger_single`](TriggerSingle::trigger_single)
+/// - [`SaveWorld`]
 pub trait SaveEvent: SingleEvent {
-    type Filter: QueryFilter;
+    /// A [`QueryFilter`] used as the initial filter for selecting saved entities.
+    type SaveFilter: QueryFilter;
 
+    /// Unpacks the save parameters ([`SaveInput`] and [`SaveOutput`]) from the event.
+    // TODO: The `SaveEvent` should have methods to query the filters to allow data abstraction.
     fn unpack(self) -> (SaveInput, SaveOutput);
 }
 
+/// A generic [`SaveEvent`] which can be used to save the [`World`].
 pub struct SaveWorld<F: QueryFilter = DefaultSaveFilter> {
+    /// Input parameters for the save process.
     pub input: SaveInput,
+    /// Output of the saved world.
     pub output: SaveOutput,
+    #[doc(hidden)]
     pub filter: PhantomData<F>,
 }
 
 impl<F: QueryFilter> SaveWorld<F> {
+    /// Creates a new [`SaveWorld`] event with the given [`SaveInput`] and [`SaveOutput`].
     pub fn new(input: SaveInput, output: SaveOutput) -> Self {
         Self {
             input,
@@ -65,6 +81,8 @@ impl<F: QueryFilter> SaveWorld<F> {
         }
     }
 
+    /// Creates a new [`SaveWorld`] event which saves entities matching the
+    /// given [`QueryFilter`] into a file at the given path.
     pub fn into_file(path: impl Into<PathBuf>) -> Self {
         Self {
             input: SaveInput::default(),
@@ -73,6 +91,8 @@ impl<F: QueryFilter> SaveWorld<F> {
         }
     }
 
+    /// Creates a new [`SaveWorld`] event which saves entities matching the
+    /// given [`QueryFilter`] into a [`Write`] stream.
     pub fn into_stream(stream: impl SaveStream) -> Self {
         Self {
             input: SaveInput::default(),
@@ -81,26 +101,31 @@ impl<F: QueryFilter> SaveWorld<F> {
         }
     }
 
+    /// Includes the given [`Resource`] in the [`SaveInput`].
     pub fn include_resource<R: Resource>(mut self) -> Self {
         self.input.resources = self.input.resources.allow::<R>();
         self
     }
 
+    /// Includes the given [`Resource`] by its [`TypeId`] in the [`SaveInput`].
     pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
         self.input.resources = self.input.resources.allow_by_id(type_id);
         self
     }
 
+    /// Excludes the given [`Component`] from the [`SaveInput`].
     pub fn exclude_component<T: Component>(mut self) -> Self {
         self.input.components = self.input.components.deny::<T>();
         self
     }
 
+    /// Excludes the given [`Component`] by its [`TypeId`] from the [`SaveInput`].
     pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
         self.input.components = self.input.components.deny_by_id(type_id);
         self
     }
 
+    /// Maps the given [`Component`] into another using a [component mapper](MapComponent) before saving.
     pub fn map_component<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
         self.input.mapper = self.input.mapper.map(m);
         self
@@ -108,20 +133,26 @@ impl<F: QueryFilter> SaveWorld<F> {
 }
 
 impl SaveWorld {
+    /// Creates a new [`SaveWorld`] event which saves default entities (with [`Save`])
+    /// into a file at the given path.
     pub fn default_into_file(path: impl Into<PathBuf>) -> Self {
         Self::into_file(path)
     }
 
+    /// Creates a new [`SaveWorld`] event which saves default entities (with [`Save`])
+    /// into a [`Write`] stream.
     pub fn default_into_stream(stream: impl SaveStream) -> Self {
         Self::into_stream(stream)
     }
 }
 
 impl SaveWorld<()> {
+    /// Creates a new [`SaveWorld`] event which saves all entities into a file at the given path.
     pub fn all_into_file(path: impl Into<PathBuf>) -> Self {
         Self::into_file(path)
     }
 
+    /// Creates a new [`SaveWorld`] event which saves all entities into a [`Write`] stream.
     pub fn all_into_stream(stream: impl SaveStream) -> Self {
         Self::into_stream(stream)
     }
@@ -133,15 +164,18 @@ impl<F: QueryFilter> SaveEvent for SaveWorld<F>
 where
     F: 'static + Send + Sync,
 {
-    type Filter = F;
+    type SaveFilter = F;
 
     fn unpack(self) -> (SaveInput, SaveOutput) {
         (self.input, self.output)
     }
 }
 
+/// Filter used for the default [`SaveWorld`] event.
+/// This includes all entities with the [`Save`] component.
 pub type DefaultSaveFilter = With<Save>;
 
+/// Input parameters for the save process.
 #[derive(Clone)]
 pub struct SaveInput {
     /// A filter for selecting which entities should be saved.
@@ -173,16 +207,22 @@ impl Default for SaveInput {
     }
 }
 
+/// Output of the save process.
 pub enum SaveOutput {
+    /// Save into a file at the given path.
     File(PathBuf),
+    /// Save into a [`Write`] stream.
     Stream(Box<dyn SaveStream>),
+    // TODO: Dump
 }
 
 impl SaveOutput {
+    /// Creates a new [`SaveOutput`] which saves into a file at the given path.
     pub fn file(path: impl Into<PathBuf>) -> Self {
         Self::File(path.into())
     }
 
+    /// Creates a new [`SaveOutput`] which saves into a [`Write`] stream.
     pub fn stream<S: SaveStream + 'static>(stream: S) -> Self {
         Self::Stream(Box::new(stream))
     }
@@ -220,6 +260,7 @@ impl Default for EntityFilter {
     }
 }
 
+#[doc(hidden)]
 pub trait SaveStream: Write
 where
     Self: 'static + Send + Sync,
@@ -235,12 +276,18 @@ pub struct Saved {
     pub scene: DynamicScene,
 }
 
+/// An [`Event`] triggered at the end of the save process.
+///
+/// This event contains the [`Saved`] data for further processing.
 #[derive(Event)]
 pub struct OnSave(pub Result<Saved, SaveError>);
 
+/// An error that may occur during the save process.
 #[derive(Debug)]
 pub enum SaveError {
+    /// An error occurred while serializing the scene.
     Ron(ron::Error),
+    /// An error occurred while writing into [`SaveOutput`].
     Io(io::Error),
 }
 
@@ -275,7 +322,7 @@ fn save_world<E: SaveEvent>(event: E, world: &mut World) -> Result<Saved, SaveEr
     // Filter
     let (input, output) = event.unpack();
     let entities: Vec<_> = world
-        .query_filtered::<Entity, E::Filter>()
+        .query_filtered::<Entity, E::SaveFilter>()
         .iter(world)
         .filter(|entity| match &input.entities {
             EntityFilter::Allow(allow) => allow.contains(entity),
@@ -333,7 +380,6 @@ pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
-        #[allow(deprecated)]
         app.configure_sets(
             PreUpdate,
             (
@@ -361,7 +407,6 @@ pub enum SaveSystem {
     PostSave,
 }
 
-#[allow(deprecated)]
 impl SystemSet for SaveSystem {
     fn dyn_clone(&self) -> Box<dyn SystemSet> {
         Box::new(self.clone())
@@ -387,7 +432,6 @@ pub struct SavePipelineBuilder<F: QueryFilter> {
 
 #[deprecated]
 #[doc(hidden)]
-#[allow(deprecated)]
 pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
     SavePipelineBuilder {
         query: PhantomData,
@@ -397,19 +441,16 @@ pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
 
 #[deprecated]
 #[doc(hidden)]
-#[allow(deprecated)]
 pub fn save_default() -> SavePipelineBuilder<With<Save>> {
     save()
 }
 
 #[deprecated]
 #[doc(hidden)]
-#[allow(deprecated)]
 pub fn save_all() -> SavePipelineBuilder<()> {
     save()
 }
 
-#[allow(deprecated)]
 impl<F: QueryFilter> SavePipelineBuilder<F>
 where
     F: 'static + Send + Sync,
@@ -467,7 +508,6 @@ pub struct DynamicSavePipelineBuilder<S: System<In = (), Out = SaveInput>> {
     input_source: S,
 }
 
-#[allow(deprecated)]
 impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
     #[deprecated]
     #[doc(hidden)]
@@ -490,7 +530,6 @@ impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
 
 #[deprecated]
 #[doc(hidden)]
-#[allow(deprecated)]
 pub fn save_with<S: IntoSystem<(), SaveInput, M>, M>(
     input_source: S,
 ) -> DynamicSavePipelineBuilder<S::System> {
@@ -501,7 +540,6 @@ pub fn save_with<S: IntoSystem<(), SaveInput, M>, M>(
 
 #[deprecated]
 #[doc(hidden)]
-#[allow(deprecated)]
 pub trait SavePipeline: Pipeline {
     fn as_save_event_source<F: QueryFilter>(
         &self,
@@ -516,7 +554,6 @@ pub trait SavePipeline: Pipeline {
         F: 'static + Send + Sync;
 }
 
-#[allow(deprecated)]
 impl SavePipeline for StaticFile {
     fn as_save_event_source<F: QueryFilter>(
         &self,
@@ -544,7 +581,6 @@ impl SavePipeline for StaticFile {
     }
 }
 
-#[allow(deprecated)]
 impl<S: GetStaticStream> SavePipeline for StaticStream<S>
 where
     S::Stream: Write,
@@ -573,7 +609,6 @@ where
     }
 }
 
-#[allow(deprecated)]
 impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
     fn as_save_event_source<F: QueryFilter>(
         &self,
@@ -601,7 +636,6 @@ impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
     }
 }
 
-#[allow(deprecated)]
 impl<R: GetStream + Resource> SavePipeline for StreamFromResource<R>
 where
     R::Stream: Write,
@@ -632,7 +666,6 @@ where
     }
 }
 
-#[allow(deprecated)]
 impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
     fn as_save_event_source<F: QueryFilter>(
         &self,
@@ -674,7 +707,6 @@ impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
     }
 }
 
-#[allow(deprecated)]
 impl<E: GetStream + Event> SavePipeline for StreamFromEvent<E>
 where
     E::Stream: Write,
@@ -875,7 +907,6 @@ mod tests {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests_legacy {
     use std::{fs::*, path::Path};
 

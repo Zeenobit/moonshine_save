@@ -17,7 +17,6 @@ use moonshine_util::event::{SingleEvent, SingleTrigger, TriggerSingle};
 use moonshine_util::system::*;
 
 // Legacy API:
-#[allow(deprecated)]
 use crate::{
     save::{Save, SaveSystem},
     FileFromEvent, FileFromResource, GetFilePath, GetStaticStream, GetStream, MapComponent,
@@ -68,7 +67,10 @@ use crate::{
 #[derive(Component, Default, Clone)]
 pub struct Unload;
 
+/// A trait used to trigger a [`LoadEvent`] via [`Commands`] or [`World`].
 pub trait TriggerLoad {
+    /// Triggers the given [`LoadEvent`].
+    #[doc(alias = "trigger_single")]
     fn trigger_load(self, event: impl LoadEvent);
 }
 
@@ -87,19 +89,43 @@ impl TriggerLoad for &mut World {
 /// A [`QueryFilter`] which determines which entities should be unloaded before the load process begins.
 pub type DefaultUnloadFilter = Or<(With<Save>, With<Unload>)>;
 
+/// A [`SingleEvent`] which starts the load process with the given parameters.
+///
+/// See also:
+/// - [`trigger_load`](TriggerLoad::trigger_load)
+/// - [`trigger_single`](TriggerSingle::trigger_single)
+/// - [`LoadWorld`]
 pub trait LoadEvent: SingleEvent {
-    type Unload: QueryFilter;
+    /// A [`QueryFilter`] used as the initial filter for selecting entities to unload.
+    type UnloadFilter: QueryFilter;
 
+    /// Unpacks the load parameters.
+    /// TODO: The `LoadEvent` should have methods to query the data.
     fn unpack(self) -> (LoadInput, SceneMapper);
 }
 
+/// A generic [`LoadEvent`] which loads the world from a file or stream.
 pub struct LoadWorld<U: QueryFilter = DefaultUnloadFilter> {
+    /// The input data used to load the world.
     pub input: LoadInput,
+    /// A [`SceneMapper`] used to map components after the load process.
     pub mapper: SceneMapper,
+    #[doc(hidden)]
     pub unload: PhantomData<U>,
 }
 
 impl<U: QueryFilter> LoadWorld<U> {
+    /// Creates a new [`LoadWorld`] with the given input and mapper.
+    pub fn new(input: LoadInput, mapper: SceneMapper) -> Self {
+        LoadWorld {
+            input,
+            mapper,
+            unload: PhantomData,
+        }
+    }
+
+    /// Creates a new [`LoadWorld`] which unloads entities matching the given
+    /// [`QueryFilter`] before the file at given path.
     pub fn from_file(path: impl Into<PathBuf>) -> Self {
         LoadWorld {
             input: LoadInput::File(path.into()),
@@ -108,6 +134,8 @@ impl<U: QueryFilter> LoadWorld<U> {
         }
     }
 
+    /// Creates a new [`LoadWorld`] which unloads entities matching the given
+    /// [`QueryFilter`] before loading from the given [`Read`] stream.
     pub fn from_stream(stream: impl LoadStream) -> Self {
         LoadWorld {
             input: LoadInput::Stream(Box::new(stream)),
@@ -116,6 +144,7 @@ impl<U: QueryFilter> LoadWorld<U> {
         }
     }
 
+    /// Maps the given [`Component`] into another using a [component mapper](MapComponent) after loading.
     pub fn map_component<T: Component>(self, m: impl MapComponent<T>) -> Self {
         LoadWorld {
             mapper: self.mapper.map(m),
@@ -125,10 +154,14 @@ impl<U: QueryFilter> LoadWorld<U> {
 }
 
 impl LoadWorld {
+    /// Creates a new [`LoadWorld`] event which unloads default entities (with [`Unload`] or [`Save`])
+    /// before loading the file at the given path.
     pub fn default_from_file(path: impl Into<PathBuf>) -> Self {
         Self::from_file(path)
     }
 
+    /// Creates a new [`LoadWorld`] event which unloads default entities (with [`Unload`] or [`Save`])
+    /// before loading from the given [`Read`] stream.
     pub fn default_from_stream(stream: impl LoadStream) -> Self {
         Self::from_stream(stream)
     }
@@ -140,18 +173,22 @@ impl<U: QueryFilter> LoadEvent for LoadWorld<U>
 where
     U: 'static + Send + Sync,
 {
-    type Unload = U;
+    type UnloadFilter = U;
 
     fn unpack(self) -> (LoadInput, SceneMapper) {
         (self.input, self.mapper)
     }
 }
 
+/// Input of the load process.
 pub enum LoadInput {
+    /// Load from a file at the given path.
     File(PathBuf),
+    /// Load from a [`Read`] stream.
     Stream(Box<dyn LoadStream>),
 }
 
+#[doc(hidden)]
 pub trait LoadStream: Read
 where
     Self: 'static + Send + Sync,
@@ -160,6 +197,9 @@ where
 
 impl<S: Read> LoadStream for S where S: 'static + Send + Sync {}
 
+/// An [`Event`] triggered at the end of the load process.
+///
+/// This event contains the [`Loaded`] data for further processing.
 #[derive(Event)]
 pub struct OnLoad(pub Result<Loaded, LoadError>);
 
@@ -200,10 +240,12 @@ impl From<SceneSpawnError> for LoadError {
     }
 }
 
+/// An [`Observer`] which loads the world when a [`LoadWorld`] event is triggered.
 pub fn load_on_default_event(trigger: SingleTrigger<LoadWorld>, world: &mut World) {
     load_on(trigger, world);
 }
 
+/// An [`Observer`] which loads the world when the given [`LoadEvent`] is triggered.
 pub fn load_on<E: LoadEvent>(trigger: SingleTrigger<E>, world: &mut World) {
     let event = trigger.event().consume().unwrap();
     let result = load_world(event, world);
@@ -237,7 +279,7 @@ fn load_world<E: LoadEvent>(event: E, world: &mut World) -> Result<Loaded, LoadE
 
     // Unload
     let entities = world
-        .query_filtered::<Entity, E::Unload>()
+        .query_filtered::<Entity, E::UnloadFilter>()
         .iter(world)
         .collect::<Vec<_>>();
     for entity in entities {
@@ -263,7 +305,6 @@ pub struct LoadPlugin;
 
 impl Plugin for LoadPlugin {
     fn build(&self, app: &mut App) {
-        #[allow(deprecated)]
         app.configure_sets(
             PreUpdate,
             (
@@ -294,7 +335,6 @@ pub enum LoadSystem {
     PostLoad,
 }
 
-#[allow(deprecated)]
 impl SystemSet for LoadSystem {
     fn dyn_clone(&self) -> Box<dyn SystemSet> {
         Box::new(self.clone())
@@ -320,7 +360,6 @@ pub struct Loaded {
 
 #[deprecated]
 #[doc(hidden)]
-#[allow(deprecated)]
 pub trait LoadPipeline: Pipeline {
     fn mapper(&self) -> Option<SceneMapper> {
         None
@@ -329,7 +368,6 @@ pub trait LoadPipeline: Pipeline {
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>>;
 }
 
-#[allow(deprecated)]
 impl LoadPipeline for StaticFile {
     fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
         let path = self.0.clone();
@@ -337,7 +375,6 @@ impl LoadPipeline for StaticFile {
     }
 }
 
-#[allow(deprecated)]
 impl<S: GetStaticStream> LoadPipeline for StaticStream<S>
 where
     S::Stream: Read,
@@ -347,7 +384,6 @@ where
     }
 }
 
-#[allow(deprecated)]
 impl<R> LoadPipeline for FileFromResource<R>
 where
     R: Resource + GetFilePath,
@@ -357,7 +393,6 @@ where
     }
 }
 
-#[allow(deprecated)]
 impl<R: GetStream + Resource> LoadPipeline for StreamFromResource<R>
 where
     R::Stream: Read,
@@ -369,7 +404,6 @@ where
     }
 }
 
-#[allow(deprecated)]
 impl<E> LoadPipeline for FileFromEvent<E>
 where
     E: Event + GetFilePath,
@@ -386,7 +420,6 @@ where
     }
 }
 
-#[allow(deprecated)]
 impl<E: GetStream + Event> LoadPipeline for StreamFromEvent<E>
 where
     E::Stream: Read,
@@ -405,7 +438,6 @@ where
 
 #[deprecated]
 #[doc(hidden)]
-#[allow(deprecated)]
 pub fn load(p: impl LoadPipeline) -> ScheduleConfigs<ScheduleSystem> {
     let source = p.as_load_event_source();
     let mapper = p.mapper();
@@ -424,13 +456,11 @@ pub fn load(p: impl LoadPipeline) -> ScheduleConfigs<ScheduleSystem> {
 }
 
 #[doc(hidden)]
-#[allow(deprecated)]
 pub trait LoadMapComponent: Sized {
     #[doc(hidden)]
     fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self>;
 }
 
-#[allow(deprecated)]
 impl<P: Pipeline> LoadMapComponent for P {
     fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self> {
         LoadPipelineBuilder {
@@ -447,7 +477,6 @@ pub struct LoadPipelineBuilder<P> {
     mapper: SceneMapper,
 }
 
-#[allow(deprecated)]
 impl<P> LoadPipelineBuilder<P> {
     #[doc(hidden)]
     pub fn map_component<U: Component>(self, m: impl MapComponent<U>) -> Self {
@@ -458,14 +487,12 @@ impl<P> LoadPipelineBuilder<P> {
     }
 }
 
-#[allow(deprecated)]
 impl<P: Pipeline> Pipeline for LoadPipelineBuilder<P> {
     fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
         self.pipeline.finish(pipeline)
     }
 }
 
-#[allow(deprecated)]
 impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
     fn mapper(&self) -> Option<SceneMapper> {
         Some(self.mapper.clone())
@@ -586,7 +613,6 @@ mod tests {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests_legacy {
     use std::{fs::*, path::Path};
 
