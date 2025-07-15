@@ -103,7 +103,7 @@ pub trait LoadEvent: SingleEvent {
     fn input(&mut self) -> LoadInput;
 
     /// Called for all entities matching the [`UnloadFilter`](LoadEvent::UnloadFilter).
-    fn before_unload(&mut self, entity: EntityMut);
+    fn before_unload(&mut self, entity: EntityWorldMut);
 
     /// Called for all entities after they have been loaded.
     fn after_load(&mut self, entity: EntityWorldMut);
@@ -184,7 +184,7 @@ where
         std::mem::replace(&mut self.input, LoadInput::Invalid)
     }
 
-    fn before_unload(&mut self, _: EntityMut) {}
+    fn before_unload(&mut self, _: EntityWorldMut) {}
 
     fn after_load(&mut self, entity: EntityWorldMut) {
         self.mapper.replace(entity);
@@ -297,9 +297,13 @@ fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, L
         .iter(world)
         .collect::<Vec<_>>();
     for entity in entities {
-        let mut entity = world.entity_mut(entity);
-        event.before_unload(entity.as_mutable());
-        entity.despawn();
+        event.before_unload(world.entity_mut(entity));
+        if let Ok(entity) = world.get_entity_mut(entity) {
+            entity.despawn();
+        } else {
+            warn!("entity {entity:?} was despawned before unload");
+            continue;
+        }
     }
 
     // Load
