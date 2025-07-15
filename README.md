@@ -91,13 +91,13 @@ use bevy::prelude::*;
 #[require(Health, Inventory, Weapon, Sprite)] // <-- Model + View
 struct Player;
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct Health;
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct Inventory;
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct Weapon;
 ```
 
@@ -111,13 +111,13 @@ use moonshine_save::prelude::*;
 #[require(Health, Inventory, Weapon)] // <-- Model
 struct Player;
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct Health;
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct Inventory;
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct Weapon;
 
 #[derive(Component)]
@@ -129,10 +129,7 @@ struct PlayerView {
 // Spawn `PlayerView` and associate it with the `Player` entity:
 fn on_player_added(trigger: Trigger<OnAdd, Player>, mut commands: Commands) {
     let player = trigger.target();
-    commands.spawn((
-        view: PlayerView { player },
-        sprite: todo!(),
-    ));
+    commands.spawn(PlayerView { player });
 }
 ```
 
@@ -181,7 +178,7 @@ use moonshine_save::prelude::*;
 #[reflect(Component)]
 struct Level(u32);
 
-let app = App::new();
+let mut app = App::new();
 app.register_type::<Level>()
     .add_observer(save_on_default_event);
 ```
@@ -247,7 +244,7 @@ Register your saved component/resource types and add a load event observer:
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
 
-let app = App::new();
+let mut app = App::new();
 app.add_observer(load_on_default_event);
 ```
 
