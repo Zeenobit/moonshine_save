@@ -213,6 +213,11 @@ pub enum SaveOutput {
     File(PathBuf),
     /// Save into a [`Write`] stream.
     Stream(Box<dyn SaveStream>),
+    /// Drops the save data.
+    ///
+    /// This is useful if you would like to process the [`Saved`] data manually.
+    /// You can observe the [`OnSave`] event for post-processing logic.
+    Drop,
     // TODO: Dump
 }
 
@@ -367,6 +372,10 @@ fn save_world<E: SaveEvent>(event: E, world: &mut World) -> Result<Saved, SaveEr
             let data = scene.serialize(&type_registry)?;
             stream.write_all(data.as_bytes())?;
             debug!("saved into stream");
+            Ok(Saved { scene })
+        }
+        SaveOutput::Drop => {
+            debug!("save dropped");
             Ok(Saved { scene })
         }
     }
