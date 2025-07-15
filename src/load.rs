@@ -286,12 +286,29 @@ impl Plugin for LoadPlugin {
 
 #[deprecated]
 #[doc(hidden)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq, SystemSet)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum LoadSystem {
     /// Reserved for systems which deserialize [`Saved`] data and process the output.
     Load,
     /// Runs after [`LoadSystem::Load`].
     PostLoad,
+}
+
+#[allow(deprecated)]
+impl SystemSet for LoadSystem {
+    fn dyn_clone(&self) -> Box<dyn SystemSet> {
+        Box::new(self.clone())
+    }
+
+    fn as_dyn_eq(&self) -> &dyn bevy_ecs::label::DynEq {
+        self
+    }
+
+    fn dyn_hash(&self, mut state: &mut dyn std::hash::Hasher) {
+        let ty_id = std::any::TypeId::of::<Self>();
+        std::hash::Hash::hash(&ty_id, &mut state);
+        std::hash::Hash::hash(self, &mut state);
+    }
 }
 
 /// A [`Resource`] which contains the loaded entity map. See [`FromLoaded`] for usage.

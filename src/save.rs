@@ -353,12 +353,29 @@ impl Plugin for SavePlugin {
 
 #[deprecated]
 #[doc(hidden)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq, SystemSet)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum SaveSystem {
     /// Reserved for systems which serialize the world and process the output.
     Save,
     /// Runs after [`SaveSystem::Save`].
     PostSave,
+}
+
+#[allow(deprecated)]
+impl SystemSet for SaveSystem {
+    fn dyn_clone(&self) -> Box<dyn SystemSet> {
+        Box::new(self.clone())
+    }
+
+    fn as_dyn_eq(&self) -> &dyn bevy_ecs::label::DynEq {
+        self
+    }
+
+    fn dyn_hash(&self, mut state: &mut dyn std::hash::Hasher) {
+        let ty_id = std::any::TypeId::of::<Self>();
+        std::hash::Hash::hash(&ty_id, &mut state);
+        std::hash::Hash::hash(self, &mut state);
+    }
 }
 
 #[deprecated]
