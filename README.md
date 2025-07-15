@@ -8,40 +8,58 @@
 
 A save/load framework for [Bevy](https://github.com/bevyengine/bevy) game engine.
 
+
 ## Overview
 
 In Bevy, it is possible to serialize and deserialize a [`World`] using a [`DynamicScene`] (see [example](https://github.com/bevyengine/bevy/blob/main/examples/scene/scene.rs) for details). While this is useful for scene management and editing, it is problematic when used for saving/loading the game state.
 
 The main issue is that in most common applications, the saved game data is a very minimal subset of the whole scene. Visual and aesthetic elements such as transforms, scene hierarchy, camera, or UI components are typically added to the scene during game start or entity initialization.
 
-This crate aims to solve this issue by providing a framework and a collection of systems for selectively saving and loading a world.
+This crate aims to solve this issue by providing a framework for selectively saving and loading a world.
+
+### Features
+
+- Clear separation between game aesthetics (view) and saved state (model)
+- Events to trigger and process save/load operations
+- Support for file paths or streams as saved data
+- Support for custom save/load events
+- No macros with minimal boilerplate
+
+**This crate may be used separately, but is also included as part of [🍸 Moonshine Core](https://github.com/Zeenobit/moonshine_core).**
+
+### Example
 
 ```rust
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
 
-App::new()
-    .add_plugins(DefaultPlugins)
-    .add_plugins((SavePlugin, LoadPlugin))
-    .add_systems(PreUpdate, save_default().into(static_file("world.ron")).run_if(should_save))
-    .add_systems(PreUpdate, load(static_file("world.ron")).run_if(should_load));
+#[derive(Component, Default, Reflect)] // <-- Saved Components must derive `Reflect`
+#[reflect(Component)]
+#[require(Save)] // <-- Mark this Entity to be saved
+pub struct MyComponent;
 
-fn should_save() -> bool {
-    todo!()
+fn main() {
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins)
+        // Register saved components:
+        .register_type::<MyComponent>()
+        // Register default save/load observers:
+        .add_observer(save_on_default_event)
+        .add_observer(load_on_default_event);
+
+    /* ... */
 }
 
-fn should_load() -> bool {
-    todo!()
+fn save(mut commands: Commands) {
+    // Save default entities (with `Save` component) into a file
+    commands.trigger_save(SaveWorld::default_into_file("world.ron"));
+}
+
+fn load(mut commands: Commands) {
+    // Unload default entities (with `Unload` component) and load the world from a file
+    commands.trigger_load(LoadWorld::default_from_file("world.ron"));
 }
 ```
-
-### Features
-
-- Clear separation between aesthetics (view) and saved state (model)
-- Minimal boilerplate for defining the saved state
-- Hooks for post-processing saved and loaded states
-- Custom save/load pipelines
-- No macros
 
 ## Philosophy
 
@@ -52,12 +70,12 @@ To use this crate as intended, you should design your game logic with this separ
 - Use serializable components to represent the saved state of your game and store them on saved entities.
   - See [Reflect](https://docs.rs/bevy_reflect/latest/bevy_reflect/#the-reflect-trait) for details on how to make components serializable.
 - If required, define a system which spawns a view entity for each spawned saved entity.
-  - You may want to use [Added](https://docs.rs/bevy/latest/bevy/ecs/query/struct.Added.html) to initialize view entities.
+  - You may want to use [Added](https://docs.rs/bevy/latest/bevy/ecs/query/struct.Added.html) or [Component Hooks](https://docs.rs/bevy/latest/bevy/ecs/component/trait.Component.html#adding-components-hooks) to initialize view entities.
 - Create a link between saved entities and their view entity.
-  - This can be done using a non-serializable component/resource.
+  - It is good to use [Relationship](https://docs.rs/bevy/latest/bevy/ecs/relationship/trait.Relationship.html) for this, but this mapping can exist anywhere.
 
 > [!TIP]
-> See [👁️ Moonshine View](https://github.com/Zeenobit/moonshine_view) for an automated, generic implementation of this pattern.
+> See [👁️ Moonshine View](https://github.com/Zeenobit/moonshine_view) for a generic implementation of this pattern.
 
 For example, suppose we want to represent a player character in a game.
 Various components are used to store the logical state of the player, such as `Health`, `Inventory`, or `Weapon`.
@@ -94,9 +112,6 @@ use moonshine_save::prelude::*;
 struct Player;
 
 #[derive(Component)]
-struct Player;
-
-#[derive(Component)]
 struct Health;
 
 #[derive(Component)]
@@ -111,13 +126,13 @@ struct PlayerView {
     player: Entity
 }
 
-fn spawn_player_sprite(mut commands: Commands, query: Query<Entity, Added<Player>>) {
-    for player in query.iter() {
-        commands.spawn((
-            view: PlayerView { player },
-            sprite: todo!(),
-        ));
-    }
+// Spawn `PlayerView` and associate it with the `Player` entity:
+fn on_player_added(trigger: Trigger<OnAdd, Player>, mut commands: Commands) {
+    let player = trigger.target();
+    commands.spawn((
+        view: PlayerView { player },
+        sprite: todo!(),
+    ));
 }
 ```
 
@@ -126,97 +141,75 @@ This approach may seem verbose at first, but it has several advantages:
 - Save data becomes the single source of truth for the entire game state
 - Save data may be represented using different systems for specialized debugging or analysis
 
-Ultimately, it is up to you to decide if the additional complexity of this separation is beneficial to your project or not.
+Ultimately, it is up to you to decide if the additional complexity of this separation is beneficial to your project or not. 
+This crate is not intended to be a general purpose save solution by default.
 
-This crate is not intended to be a general purpose save solution by default. However, it is also designed to be highly flexible.
-
-There are some standard and commonly used save/load pipelines that should be sufficient for most applications based on the architecture outlined above. These pipelines are composed of smaller sub-systems.
-
-These sub-systems may be used in any other desired configuration and combined with other systems to create highly specialized pipelines.
+However, you can also extend the save/load pipeline by processing the saved or loaded data to suit your needs. See crate documentation for full details.
 
 ## Usage
 
-### Save Pipeline
+### Saving
 
-To save the game state, start by marking entities which must be saved using the [`Save`] marker. This is a component which can be added to bundles, declared as a requirement or inserted into entities like any other component:
+To save the game state, start by marking entities which must be saved using [`Save`].
+
+It is best to use this component as a requirement for your saved components:
 ```rust
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
 
-#[derive(Component, Default, Reflect)]
+#[derive(Component, Default, Reflect)] // <-- Saved Components must derive `Reflect`
 #[reflect(Component)]
-#[require(Name, Level, Save)] // <-- Add Save Marker
+#[require(Name, Level, Save)] // <-- Add Save as requirement
 struct Player;
 
 #[derive(Component, Default, Reflect)]
 #[reflect(Component)]
 struct Level(u32);
 ```
-> ⚠️ Saved components must implement [`Reflect`](https://docs.rs/bevy/latest/bevy/reflect/trait.Reflect.html) and be [registered types](https://docs.rs/bevy/latest/bevy/app/struct.App.html#method.register_type).
 
-Add [`SavePlugin`] and register your serialized components:
-```rust,ignore
-app.add_plugins(SavePlugin)
-    .register_type::<Player>()
-    .register_type::<Level>();
+Using [`Save`] as a requirement ensures it is inserted automatically during the load process, since `Save` itself is never serialized (due to efficiency). However, you can insert the `Save` component manually if needed.
+
+Note that `Save` marks the *whole* entity for saving. So you do **NOT** need it on *every* saved component.
+
+
+Register your saved component/resource types and add a save event observer:
+```rust
+use bevy::prelude::*;
+use moonshine_save::prelude::*;
+
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+struct Level(u32);
+
+let app = App::new();
+app.register_type::<Level>()
+    .add_observer(save_on_default_event);
 ```
 
-To invoke the save process, you must define a [`SavePipeline`]. Each save pipeline is a collection of piped systems.
+[`save_on_default_event`] is a default observer which saves all entities marked with [`Save`] component when a [`SaveWorld`] event is triggered.
 
-You may start a save pipeline using [`save_default`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_default.html) which saves all entities with a [`Save`] component.
+Alternatively, you can use [`save_on`] with a custom [`SaveEvent`] for specialized save pipelines. See documentation for details.
 
-```rust,ignore
-app.add_systems(PreUpdate, save_default().into_file("saved.ron"));
-```
+To trigger a save, use `trigger_save` via [`Commands`] or [`World`]:
+```rust
+use bevy::prelude::*;
+use moonshine_save::prelude::*;
 
-Alternative, you may also use [`save_all`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_all.html) to save all entities and [`save`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save.html) to provide a custom [`QueryFilter`](https://docs.rs/bevy/latest/bevy/ecs/query/trait.QueryFilter.html) for your saved entities.
-
-There is also [`save_all_with`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_all_with.html) and [`save_with`](https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_with.html) to be used with a custom, dynamic [`SaveFilter`](https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SaveFilter.html).
-
-When used on its own, a pipeline would save the world state on every call.
-This is often undesirable because you typically want the save process to happen at specific times during runtime.
-To solve this, you can combine the save pipeline with [`.run_if`](https://docs.rs/bevy/latest/bevy/ecs/schedule/trait.IntoSystemConfigs.html#method.run_if):
-
-```rust,ignore
-app.add_systems(PreUpdate,
-    save_default()
-        .into(static_file("saved.ron"))
-        .run_if(should_save));
-
-fn should_save( /* ... */ ) -> bool {
-    todo!()
+fn request_save(mut commands: Commands) {
+    commands.trigger_save(SaveWorld::default_into_file("saved.ron"));
 }
 ```
 
-All save operations happen in the [`SaveSystem`](https://docs.rs/moonshine-save/latest/moonshine_save/save/enum.SaveSystem.html) set during [`PreUpdate`](https://docs.rs/bevy/latest/bevy/app/struct.PreUpdate.html).
+[`SaveWorld`] is a generic [`SaveEvent`] which allows you to:
+- Select the save output as file or stream
+- Allow/Block specific entities from being saved
+- Include resources into saved data
+- Exclude specific components on saved entities from being saved
+- Map components into serializable types before saving
 
-#### Saving Resources
+See documentation for full details and examples.
 
-By default, resources are **NOT** included in the save data.
-
-To include resources into the save pipeline, use [`.include_resource<R>`](https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SavePipelineBuilder.html#method.include_resource):
-
-```rust,ignore
-app.add_systems(PreUpdate,
-    save_default()
-        .include_resource::<R>()
-        .into(static_file("saved.ron")));
-```
-
-#### Removing Components
-
-By default, all serializable components on saved entities are included in the save data.
-
-To exclude components from the save pipeline, use [`.exclude_component<T>`](https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SavePipelineBuilder.html#method.exclude_component):
-
-```rust,ignore
-app.add_systems(PreUpdate,
-    save_default()
-        .exclude_component::<T>()
-        .into(static_file("saved.ron")));
-```
-
-### Load Pipeline
+### Loading
 
 Before loading, mark your visual and aesthetic entities ("view" entities) with [`Unload`](https://docs.rs/moonshine-save/latest/moonshine_save/load/struct.Unload.html).
 
@@ -227,160 +220,60 @@ Similar to [`Save`], this is a marker which can be added to bundles or inserted 
 
 Any entity marked with `Unload` is despawned recursively before loading begins.
 
-```rust,ignore
-struct PlayerSpriteBundle {
-    /* ... */
-    unload: Unload,
-}
+```rust
+use bevy::prelude::*;
+use moonshine_save::prelude::*;
+
+#[derive(Component)]
+#[require(Unload)] // <-- Mark this entity to be unloaded before loading
+struct PlayerView;
 ```
 
 You should design your game logic to keep saved data separate from game visuals.
 
-Any saved components which reference entities must implement [`MapEntities`](https://docs.rs/bevy/latest/bevy/ecs/entity/trait.MapEntities.html):
+Any saved components which reference entities must also derive [`MapEntities`](https://docs.rs/bevy/latest/bevy/ecs/entity/trait.MapEntities.html):
 
-```rust,ignore
-struct PlayerWeapon(Option<Entity>);
+```rust
+use bevy::prelude::*;
+use moonshine_save::prelude::*;
 
-impl MapEntities for PlayerWeapon {
-        fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        if let Some(weapon) = self.0.as_mut() {
-            *weapon = entity_mapper.map_entity(*weapon);
-        }
-    }
+#[derive(Component, MapEntities, Reflect)]
+#[reflect(Component, MapEntities)] // <-- Derive and reflect MapEntities
+struct PlayerWeapon(Entity);
+```
+
+Register your saved component/resource types and add a load event observer:
+```rust
+use bevy::prelude::*;
+use moonshine_save::prelude::*;
+
+let app = App::new();
+app.add_observer(load_on_default_event);
+```
+
+[`load_on_default_event`] is a default observer which unloads all entities marked with [`Unload`] component and loads the saved without any further processing.
+
+Alternatively, you can use [`load_on`] with a custom [`LoadEvent`] for specialized load pipelines. See documentation for details.
+
+To trigger a load, use `trigger_load` via [`Commands`] or [`World`]:
+```rust
+use bevy::prelude::*;
+use moonshine_save::prelude::*;
+
+fn request_load(mut commands: Commands) {
+    commands.trigger_load(LoadWorld::default_from_file("saved.ron"));
 }
 ```
 
-Make sure [`LoadPlugin`](https://docs.rs/moonshine-save/latest/moonshine_save/load/struct.LoadPlugin.html) is added and your types are registered:
+[`LoadWorld`] is a generic [`LoadEvent`] which allows you to:
+- Select the load input as file or stream
+- Unmap components from serialized types after loading
 
-```rust,ignore
-app.add_plugins(LoadPlugin)
-    .register_type::<Player>()
-    .register_type::<Level>();
-```
-
-To invoke the load process, you must add a load pipeline. The default load pipeline is [`load_from_file`](https://docs.rs/moonshine-save/latest/moonshine_save/load/fn.load_from_file.html):
-
-```rust,ignore
-app.add_systems(PreUpdate, load(static_file("saved.ron")));
-```
-
-Similar to the save pipeline, you typically want to use `load_from_file` with [`.run_if`](https://docs.rs/bevy/latest/bevy/ecs/schedule/trait.IntoSystemConfigs.html#method.run_if):
-
-```rust,ignore
-app.add_systems(PreUpdate, load(static_file("saved.ron")).run_if(should_load));
-
-fn should_load( /* ... */ ) -> bool {
-    todo!()
-}
-```
-
-All load operations happen in the [`LoadSystem`](https://docs.rs/moonshine-save/latest/moonshine_save/load/enum.LoadSystem.html) set during [`PreUpdate`](https://docs.rs/bevy/latest/bevy/app/struct.PreUpdate.html).
-
-Note that loading always happens before saving. So if there are simultaneous load and save requests, the load request will always be processed first.
+See documentation for full details and examples.
 
 ## Example
 
 See [examples/army.rs](examples/army.rs) for a minimal application which demonstrates how to save/load game state in detail.
-
-## Dynamic Save File Path
-
-In the examples provided, the save file path is often static (i.e. known at compile time). However, in some applications, it may be necessary to save into a path selected at runtime.
-
-You may use [`GetFilePath`](https://docs.rs/moonshine-save/latest/moonshine_save/save/trait.GetFilePath.html) to achieve this.
-
-Your save/load request may either be a [`Resource`](https://docs.rs/bevy/latest/bevy/ecs/system/trait.Resource.html) or an [`Event`](https://docs.rs/bevy/latest/bevy/ecs/event/trait.Event.html).
-
-```rust
-use std::path::{Path, PathBuf};
-use bevy::prelude::*;
-use moonshine_save::prelude::*;
-
-// Save request with a dynamic path
-#[derive(Resource)]
-struct SaveRequest {
-    pub path: PathBuf,
-}
-
-impl GetFilePath for SaveRequest {
-    fn path(&self) -> &Path {
-        self.path.as_ref()
-    }
-}
-
-// Load request with a dynamic path
-#[derive(Resource)]
-struct LoadRequest {
-    pub path: PathBuf,
-}
-
-impl GetFilePath for LoadRequest {
-    fn path(&self) -> &Path {
-        self.path.as_ref()
-    }
-}
-
-App::new()
-    .add_systems(PreUpdate, save_default().into(file_from_resource::<SaveRequest>()))
-    .add_systems(PreUpdate, load(file_from_resource::<LoadRequest>()));
-
-fn trigger_save(mut commands: Commands) {
-    commands.insert_resource(SaveRequest { path: "saved.ron".into() });
-}
-
-fn trigger_load(mut commands: Commands) {
-    commands.insert_resource(LoadRequest { path: "saved.ron".into() });
-}
-```
-
-
-Similarly, to use an event for save/load requests, you may use [`.into_file_on_event`](https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SavePipelineBuilder.html#method.into_file_on_event) and [`load_from_file_on_event`](https://docs.rs/moonshine-save/latest/moonshine_save/load/fn.load_from_file_on_event.html) instead:
-
-```rust
-use bevy::prelude::*;
-use moonshine_save::prelude::*;
-
-use std::path::{Path, PathBuf};
-use bevy::prelude::*;
-use moonshine_save::prelude::*;
-
-// Save request with a dynamic path
-#[derive(Event)]
-struct SaveRequest {
-    path: PathBuf,
-}
-
-impl GetFilePath for SaveRequest {
-    fn path(&self) -> &Path {
-        self.path.as_ref()
-    }
-}
-
-// Load request with a dynamic path
-#[derive(Event)]
-struct LoadRequest {
-    path: PathBuf,
-}
-
-impl GetFilePath for LoadRequest {
-    fn path(&self) -> &Path {
-        self.path.as_ref()
-    }
-}
-
-App::new()
-    .add_event::<SaveRequest>()
-    .add_event::<LoadRequest>()
-    .add_systems(PreUpdate, save_default().into(file_from_event::<SaveRequest>()))
-    .add_systems(PreUpdate, load(file_from_event::<LoadRequest>()));
-
-fn trigger_save(mut events: EventWriter<SaveRequest>) {
-    events.send(SaveRequest { path: "saved.ron".into() });
-}
-
-fn trigger_load(mut events: EventWriter<LoadRequest>) {
-    events.send(LoadRequest { path: "saved.ron".into() });
-}
-```
 
 ## Versions, Backwards Compatibility and Validation
 
@@ -442,17 +335,6 @@ impl ValidNew {
 }
 ```
 
-## Installation
-
-Add the following to your `Cargo.toml`:
-
-```toml
-[dependencies]
-moonshine-save = "0.4.0"
-```
-
-This crate is also included as part of [🍸 Moonshine Core](https://github.com/Zeenobit/moonshine_core).
-
 ## Support
 
 Please [post an issue](https://github.com/Zeenobit/moonshine_save/issues/new) for any bugs, questions, or suggestions.
@@ -460,8 +342,17 @@ Please [post an issue](https://github.com/Zeenobit/moonshine_save/issues/new) fo
 You may also contact me on the official [Bevy Discord](https://discord.gg/bevy) server as **@Zeenobit**.
 
 [`World`]:https://docs.rs/bevy/latest/bevy/ecs/world/struct.World.html
+[`Commands`]:https://docs.rs/bevy/latest/bevy/ecs/prelude/struct.Commands.html
 [`DynamicScene`]:https://docs.rs/bevy/latest/bevy/prelude/struct.DynamicScene.html
 [`DynamicSceneBuilder`]:https://docs.rs/bevy/latest/bevy/prelude/struct.DynamicSceneBuilder.html
 [`Save`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.Save.html
 [`SavePlugin`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SavePlugin.html
 [`SavePipeline`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/type.SavePipeline.html
+[`save_on_default_event`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_on_default_event.html
+[`save_on`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_on.html
+[`load_on_default_event`]:https://docs.rs/moonshine-save/latest/moonshine_save/load/fn.load_on_default_event.html
+[`load_on`]:https://docs.rs/moonshine-save/latest/moonshine_save/load/fn.load_on.html
+[`SaveWorld`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SaveWorld.html
+[`LoadWorld`]:https://docs.rs/moonshine-save/latest/moonshine_save/load/struct.LoadWorld.html
+[`SaveEvent`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/trait.SaveEvent.html
+[`LoadEvent`]:https://docs.rs/moonshine-save/latest/moonshine_save/load/trait.LoadEvent.html
