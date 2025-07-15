@@ -19,12 +19,12 @@ pub mod save;
 /// Common elements for saving/loading world state.
 pub mod prelude {
     pub use crate::load::{
-        load_on, load_on_default_event, LoadError, LoadEvent, LoadPlugin, LoadWorld, Loaded,
-        OnLoad, TriggerLoad, Unload,
+        load_on, load_on_default_event, LoadError, LoadEvent, LoadInput, LoadPlugin, LoadWorld,
+        Loaded, OnLoad, TriggerLoad, Unload,
     };
 
     pub use crate::save::{
-        save_on, save_on_default_event, OnSave, Save, SaveError, SaveEvent, SaveInput, SavePlugin,
+        save_on, save_on_default_event, OnSave, Save, SaveError, SaveEvent, SaveOutput, SavePlugin,
         SaveWorld, Saved, TriggerSave,
     };
 
@@ -37,7 +37,7 @@ pub mod prelude {
     pub use crate::{
         file_from_event, file_from_resource,
         load::{load, LoadMapComponent, LoadSystem},
-        save::{save, save_all, save_default, save_with, SaveSystem},
+        save::{save, save_all, save_default, save_with, SaveInput, SaveSystem},
         static_file, GetFilePath,
     };
 }

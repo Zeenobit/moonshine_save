@@ -56,9 +56,23 @@ pub trait SaveEvent: SingleEvent {
     /// A [`QueryFilter`] used as the initial filter for selecting saved entities.
     type SaveFilter: QueryFilter;
 
-    /// Unpacks the save parameters ([`SaveInput`] and [`SaveOutput`]) from the event.
-    // TODO: The `SaveEvent` should have methods to query the filters to allow data abstraction.
-    fn unpack(self) -> (SaveInput, SaveOutput);
+    /// Return `true` if the given [`Entity`] should be saved.
+    fn filter_entity(&self, entity: Entity) -> bool;
+
+    /// Called for all saved entities before serialization.
+    fn before_serialize(&mut self, entity: EntityWorldMut);
+
+    /// Called for all saved entities after serialization.
+    fn after_serialize(&mut self, entity: EntityWorldMut);
+
+    /// Returns a [`SceneFilter`] for selecting which components should be saved.
+    fn component_filter(&self) -> SceneFilter;
+
+    /// Returns a [`SceneFilter`] for selecting which resources should be saved.
+    fn resource_filter(&self) -> SceneFilter;
+
+    /// Returns the [`SaveOutput`] of the save process.
+    fn output(self) -> SaveOutput;
 }
 
 /// A generic [`SaveEvent`] which can be used to save the [`World`].
@@ -166,8 +180,31 @@ where
 {
     type SaveFilter = F;
 
-    fn unpack(self) -> (SaveInput, SaveOutput) {
-        (self.input, self.output)
+    fn filter_entity(&self, entity: Entity) -> bool {
+        match &self.input.entities {
+            EntityFilter::Allow(allow) => allow.contains(&entity),
+            EntityFilter::Block(block) => !block.contains(&entity),
+        }
+    }
+
+    fn before_serialize(&mut self, entity: EntityWorldMut) {
+        self.input.mapper.apply(entity);
+    }
+
+    fn after_serialize(&mut self, entity: EntityWorldMut) {
+        self.input.mapper.undo(entity);
+    }
+
+    fn component_filter(&self) -> SceneFilter {
+        self.input.components.clone()
+    }
+
+    fn resource_filter(&self) -> SceneFilter {
+        self.input.resources.clone()
+    }
+
+    fn output(self) -> SaveOutput {
+        self.output
     }
 }
 
@@ -176,6 +213,7 @@ where
 pub type DefaultSaveFilter = With<Save>;
 
 /// Input parameters for the save process.
+#[deprecated]
 #[derive(Clone)]
 pub struct SaveInput {
     /// A filter for selecting which entities should be saved.
@@ -218,7 +256,6 @@ pub enum SaveOutput {
     /// This is useful if you would like to process the [`Saved`] data manually.
     /// You can observe the [`OnSave`] event for post-processing logic.
     Drop,
-    // TODO: Dump
 }
 
 impl SaveOutput {
@@ -323,39 +360,35 @@ pub fn save_on<E: SaveEvent>(trigger: SingleTrigger<E>, world: &mut World) {
     world.trigger(OnSave(result));
 }
 
-fn save_world<E: SaveEvent>(event: E, world: &mut World) -> Result<Saved, SaveError> {
+fn save_world<E: SaveEvent>(mut event: E, world: &mut World) -> Result<Saved, SaveError> {
     // Filter
-    let (input, output) = event.unpack();
+    //let (input, output) = event.unpack();
     let entities: Vec<_> = world
         .query_filtered::<Entity, E::SaveFilter>()
         .iter(world)
-        .filter(|entity| match &input.entities {
-            EntityFilter::Allow(allow) => allow.contains(entity),
-            EntityFilter::Block(block) => !block.contains(entity),
-        })
+        .filter(|entity| event.filter_entity(*entity))
         .collect();
 
     // Map
-    let mut mapper = input.mapper;
     for entity in entities.iter() {
-        mapper.apply(world.entity_mut(*entity));
+        event.before_serialize(world.entity_mut(*entity));
     }
 
     // Serialize
     let scene = DynamicSceneBuilder::from_world(world)
-        .with_component_filter(input.components)
-        .with_resource_filter(input.resources)
+        .with_component_filter(event.component_filter())
+        .with_resource_filter(event.resource_filter())
         .extract_resources()
         .extract_entities(entities.iter().copied())
         .build();
 
     // Unmap
     for entity in entities.iter() {
-        mapper.undo(world.entity_mut(*entity));
+        event.after_serialize(world.entity_mut(*entity));
     }
 
     // Write
-    match output {
+    match event.output() {
         SaveOutput::File(path) => {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
