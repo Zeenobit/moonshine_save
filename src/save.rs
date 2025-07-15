@@ -369,20 +369,16 @@ fn save_world<E: SaveEvent>(mut event: E, world: &mut World) -> Result<Saved, Sa
         .filter(|entity| event.filter_entity(*entity))
         .collect();
 
-    // Map
+    // Serialize
     for entity in entities.iter() {
         event.before_serialize(world.entity_mut(*entity));
     }
-
-    // Serialize
     let scene = DynamicSceneBuilder::from_world(world)
         .with_component_filter(event.component_filter())
         .with_resource_filter(event.resource_filter())
         .extract_resources()
         .extract_entities(entities.iter().copied())
         .build();
-
-    // Unmap
     for entity in entities.iter() {
         event.after_serialize(world.entity_mut(*entity));
     }

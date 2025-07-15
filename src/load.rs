@@ -99,9 +99,14 @@ pub trait LoadEvent: SingleEvent {
     /// A [`QueryFilter`] used as the initial filter for selecting entities to unload.
     type UnloadFilter: QueryFilter;
 
-    /// Unpacks the load parameters.
-    /// TODO: The `LoadEvent` should have methods to query the data.
-    fn unpack(self) -> (LoadInput, SceneMapper);
+    /// Returns the [`LoadInput`] of the load process.
+    fn input(&mut self) -> LoadInput;
+
+    /// Called for all entities matching the [`UnloadFilter`](LoadEvent::UnloadFilter).
+    fn before_unload(&mut self, entity: EntityMut);
+
+    /// Called for all entities after they have been loaded.
+    fn after_load(&mut self, entity: EntityWorldMut);
 }
 
 /// A generic [`LoadEvent`] which loads the world from a file or stream.
@@ -175,8 +180,14 @@ where
 {
     type UnloadFilter = U;
 
-    fn unpack(self) -> (LoadInput, SceneMapper) {
-        (self.input, self.mapper)
+    fn input(&mut self) -> LoadInput {
+        std::mem::replace(&mut self.input, LoadInput::Invalid)
+    }
+
+    fn before_unload(&mut self, _: EntityMut) {}
+
+    fn after_load(&mut self, entity: EntityWorldMut) {
+        self.mapper.replace(entity);
     }
 }
 
@@ -186,6 +197,8 @@ pub enum LoadInput {
     File(PathBuf),
     /// Load from a [`Read`] stream.
     Stream(Box<dyn LoadStream>),
+    #[doc(hidden)]
+    Invalid,
 }
 
 #[doc(hidden)]
@@ -255,17 +268,18 @@ pub fn load_on<E: LoadEvent>(trigger: SingleTrigger<E>, world: &mut World) {
     world.trigger(OnLoad(result));
 }
 
-fn load_world<E: LoadEvent>(event: E, world: &mut World) -> Result<Loaded, LoadError> {
-    let (input, mut mapper) = event.unpack();
-
+fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, LoadError> {
     // Read
     let mut bytes = Vec::new();
-    match input {
+    match event.input() {
         LoadInput::File(path) => {
             bytes = std::fs::read(&path)?;
         }
         LoadInput::Stream(mut stream) => {
             stream.read_to_end(&mut bytes)?;
+        }
+        LoadInput::Invalid => {
+            panic!("LoadInput is invalid");
         }
     };
 
@@ -283,17 +297,17 @@ fn load_world<E: LoadEvent>(event: E, world: &mut World) -> Result<Loaded, LoadE
         .iter(world)
         .collect::<Vec<_>>();
     for entity in entities {
-        world.despawn(entity);
+        let mut entity = world.entity_mut(entity);
+        event.before_unload(entity.as_mutable());
+        entity.despawn();
     }
 
     // Load
     let mut entity_map = EntityHashMap::default();
     scene.write_to_world(world, &mut entity_map)?;
-
-    // Map
     for entity in entity_map.values() {
         if let Ok(entity) = world.get_entity_mut(*entity) {
-            mapper.replace(entity);
+            event.after_load(entity);
         }
     }
 
