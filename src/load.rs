@@ -281,6 +281,9 @@ impl Plugin for LoadPlugin {
     }
 }
 
+// TODO: REMOVE LEGACY API BELOW
+// VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+
 #[deprecated]
 #[doc(hidden)]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, SystemSet)]
@@ -458,6 +461,116 @@ impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::*;
+
+    use bevy::prelude::*;
+    use bevy_ecs::system::RunSystemOnce;
+
+    use super::*;
+
+    pub const DATA: &str = "(
+        resources: {},
+        entities: {
+            4294967296: (
+                components: {
+                    \"moonshine_save::load::tests::Foo\": (),
+                },
+            ),
+        },
+    )";
+
+    #[derive(Component, Default, Reflect)]
+    #[reflect(Component)]
+    #[require(Save)]
+    struct Foo;
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).register_type::<Foo>();
+        app
+    }
+
+    #[test]
+    fn test_load_file() {
+        #[derive(Resource)]
+        struct EventTriggered;
+
+        pub const PATH: &str = "test_load_file.ron";
+
+        write(PATH, DATA).unwrap();
+
+        let mut app = app();
+        app.add_observer(load_on_default_event);
+
+        app.add_observer(|_: Trigger<OnLoad>, mut commands: Commands| {
+            commands.insert_resource(EventTriggered);
+        });
+
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            commands.trigger_load(LoadWorld::default_from_file(PATH));
+        });
+
+        let world = app.world_mut();
+        assert!(!world.contains_resource::<Loaded>());
+        assert!(world.contains_resource::<EventTriggered>());
+        assert!(world
+            .query_filtered::<(), With<Foo>>()
+            .single(world)
+            .is_ok());
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_load_stream() {
+        pub const PATH: &str = "test_load_stream.ron";
+
+        write(PATH, DATA).unwrap();
+
+        let mut app = app();
+        app.add_observer(load_on_default_event);
+
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            commands.spawn((Foo, Save));
+            commands.trigger_load(LoadWorld::default_from_stream(File::open(PATH).unwrap()));
+        });
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Foo"));
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_load_map_component() {
+        pub const PATH: &str = "test_load_map_component.ron";
+
+        write(PATH, DATA).unwrap();
+
+        #[derive(Component)]
+        struct Bar; // Not serializable
+
+        let mut app = app();
+        app.add_observer(load_on_default_event);
+
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            commands.trigger_load(LoadWorld::default_from_file(PATH).map_component(|_: &Foo| Bar));
+        });
+
+        let world = app.world_mut();
+        assert!(world
+            .query_filtered::<(), With<Bar>>()
+            .single(world)
+            .is_ok());
+        assert!(world.query_filtered::<(), With<Foo>>().iter(world).count() == 0);
+
+        remove_file(PATH).unwrap();
+    }
+}
+
+#[cfg(test)]
+#[allow(deprecated)]
+mod tests_legacy {
     use std::{fs::*, path::Path};
 
     use bevy::prelude::*;
@@ -470,7 +583,7 @@ mod tests {
         entities: {
             4294967296: (
                 components: {
-                    \"moonshine_save::load::tests::Dummy\": (),
+                    \"moonshine_save::load::tests_legacy::Dummy\": (),
                 },
             ),
         },
@@ -492,7 +605,7 @@ mod tests {
         #[derive(Resource)]
         struct EventTriggered;
 
-        pub const PATH: &str = "test_load_file.ron";
+        pub const PATH: &str = "test_load_file_legacy.ron";
 
         write(PATH, DATA).unwrap();
 
@@ -518,7 +631,7 @@ mod tests {
 
     #[test]
     fn test_load_stream() {
-        pub const PATH: &str = "test_load_stream.ron";
+        pub const PATH: &str = "test_load_stream_legacy.ron";
 
         struct LoadStream;
 
@@ -549,7 +662,7 @@ mod tests {
 
     #[test]
     fn test_load_file_from_resource() {
-        pub const PATH: &str = "test_load_file_from_resource.ron";
+        pub const PATH: &str = "test_load_file_from_resource_legacy.ron";
 
         write(PATH, DATA).unwrap();
 
@@ -579,7 +692,7 @@ mod tests {
 
     #[test]
     fn test_load_stream_from_resource() {
-        pub const PATH: &str = "test_load_stream_from_resource.ron";
+        pub const PATH: &str = "test_load_stream_from_resource_legacy.ron";
 
         write(PATH, DATA).unwrap();
 
@@ -611,7 +724,7 @@ mod tests {
 
     #[test]
     fn test_load_file_from_event() {
-        pub const PATH: &str = "test_load_file_from_event.ron";
+        pub const PATH: &str = "test_load_file_from_event_legacy.ron";
 
         write(PATH, DATA).unwrap();
 
@@ -642,7 +755,7 @@ mod tests {
 
     #[test]
     fn test_load_stream_from_event() {
-        pub const PATH: &str = "test_load_stream_from_event.ron";
+        pub const PATH: &str = "test_load_stream_from_event_legacy.ron";
 
         write(PATH, DATA).unwrap();
 
@@ -675,7 +788,7 @@ mod tests {
 
     #[test]
     fn test_load_map_component() {
-        pub const PATH: &str = "test_load_map_component.ron";
+        pub const PATH: &str = "test_load_map_component_legacy.ron";
 
         write(PATH, DATA).unwrap();
 
