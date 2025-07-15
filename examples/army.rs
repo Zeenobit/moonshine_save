@@ -122,9 +122,6 @@ fn setup(mut commands: Commands) {
     // Spawn camera
     commands.spawn(Camera2d);
 
-    // Spawn army text
-
-    // Spawn buttons
     commands
         .spawn(Node {
             width: Val::Percent(100.0),
@@ -133,6 +130,7 @@ fn setup(mut commands: Commands) {
             ..default()
         })
         .with_children(|root| {
+            // Spawn army text
             root.spawn((
                 Node {
                     margin: UiRect::bottom(Val::Px(20.)),
@@ -159,7 +157,7 @@ fn setup(mut commands: Commands) {
                 TextColor(Color::WHITE),
             ));
 
-            // Buttons Row
+            // Spawn buttons
             root.spawn((
                 Node {
                     flex_direction: FlexDirection::Row,
