@@ -23,7 +23,7 @@ fn main() {
         app.add_observer(save_on_default_event);
 
         app.insert_resource(Foo);
-        app.world_mut().run_system_once(|mut commands: Commands| {
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
             commands
                 .trigger_save(SaveWorld::default_into_file(SAVE_PATH).include_resource::<Foo>());
         });
