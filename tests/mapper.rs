@@ -1,6 +1,7 @@
 use std::fs;
 
 use bevy::prelude::*;
+use bevy_ecs::system::RunSystemOnce;
 use moonshine_save::prelude::*;
 
 const SAVE_PATH: &str = "test_mapper.ron";
@@ -57,17 +58,22 @@ fn app() -> App {
 fn main() {
     {
         let mut app = app();
-        app.add_plugins(SavePlugin).add_systems(
-            PreUpdate,
-            save_default()
-                .map_component::<Foo>(|Foo(data): &Foo| SerializedFoo(data.secret()))
-                .into(static_file(SAVE_PATH)),
-        );
+        app.add_observer(save_on_default_event);
 
-        // Spawn some entities
-        let entity = app.world_mut().spawn(FooBundle::new(42)).id();
+        let entity = app
+            .world_mut()
+            .run_system_once(|mut commands: Commands| {
+                // Spawn some entities
+                let entity = commands.spawn(FooBundle::new(42)).id();
 
-        app.update();
+                commands.trigger_save(
+                    SaveWorld::default_into_file(SAVE_PATH)
+                        .map_component(|Foo(data): &Foo| SerializedFoo(data.secret())),
+                );
+
+                entity
+            })
+            .unwrap();
 
         // Check pre-conditions
         let world = app.world_mut();
@@ -82,18 +88,18 @@ fn main() {
 
     {
         let mut app = app();
-        app.add_plugins(LoadPlugin).add_systems(
-            PreUpdate,
-            load(
-                static_file(SAVE_PATH)
+        app.add_observer(load_on_default_event);
+
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            // Spawn an entity to offset indices
+            commands.spawn_empty();
+
+            // Load
+            commands.trigger_load(
+                LoadWorld::default_from_file(SAVE_PATH)
                     .map_component(|&SerializedFoo(data): &SerializedFoo| Foo(Box::new(data))),
-            ),
-        );
-
-        // Spawn an entity to offset indices
-        app.world_mut().spawn_empty();
-
-        app.update();
+            );
+        });
 
         let world = app.world_mut();
         let entity = world

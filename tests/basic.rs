@@ -1,6 +1,7 @@
 use std::fs;
 
 use bevy::prelude::*;
+use bevy_ecs::system::RunSystemOnce;
 use moonshine_save::prelude::*;
 
 const SAVE_PATH: &str = "test_basic.ron";
@@ -51,18 +52,25 @@ fn app() -> App {
 fn main() {
     {
         let mut app = app();
-        app.add_plugins(SavePlugin)
-            .add_systems(PreUpdate, save_default().into(static_file(SAVE_PATH)));
+        app.add_observer(save_on_default_event);
 
-        // Spawn some entities
-        let bar = app.world_mut().spawn(BarBundle::default()).id();
-        app.world_mut().spawn(FooBundle {
-            foo: Foo(42),
-            bar: FooBar(bar),
-            save: Save,
-        });
+        let bar = app
+            .world_mut()
+            .run_system_once(|mut commands: Commands| {
+                // Spawn some entities
+                let bar = commands.spawn(BarBundle::default()).id();
+                commands.spawn(FooBundle {
+                    foo: Foo(42),
+                    bar: FooBar(bar),
+                    save: Save,
+                });
 
-        app.update();
+                // Save
+                commands.trigger_save(SaveWorld::default_into_file(SAVE_PATH));
+
+                bar
+            })
+            .unwrap();
 
         // Check pre-conditions
         let world = app.world_mut();
@@ -76,13 +84,15 @@ fn main() {
 
     {
         let mut app = app();
-        app.add_plugins(LoadPlugin)
-            .add_systems(PreUpdate, load(static_file(SAVE_PATH)));
+        app.add_observer(load_on_default_event);
 
-        // Spawn an entity to offset indices
-        app.world_mut().spawn_empty();
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            // Spawn an entity to offset indices
+            commands.spawn_empty();
 
-        app.update();
+            // Load
+            commands.trigger_load(LoadWorld::default_from_file(SAVE_PATH));
+        });
 
         let world = app.world_mut();
         let bar = world

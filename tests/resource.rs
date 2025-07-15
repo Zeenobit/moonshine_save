@@ -1,6 +1,7 @@
 use std::fs;
 
 use bevy::prelude::*;
+use bevy_ecs::system::RunSystemOnce;
 use moonshine_save::prelude::*;
 
 const SAVE_PATH: &str = "test_resource.ron";
@@ -19,16 +20,13 @@ fn app() -> App {
 fn main() {
     {
         let mut app = app();
-        app.add_plugins(SavePlugin).add_systems(
-            PreUpdate,
-            save_default()
-                .include_resource::<Foo>()
-                .into(static_file(SAVE_PATH)),
-        );
+        app.add_observer(save_on_default_event);
 
         app.insert_resource(Foo);
-
-        app.update();
+        app.world_mut().run_system_once(|mut commands: Commands| {
+            commands
+                .trigger_save(SaveWorld::default_into_file(SAVE_PATH).include_resource::<Foo>());
+        });
 
         // Check pre-conditions
         assert!(app.world().contains_resource::<Foo>());
@@ -39,10 +37,11 @@ fn main() {
 
     {
         let mut app = app();
-        app.add_plugins(LoadPlugin)
-            .add_systems(PreUpdate, load(static_file(SAVE_PATH)));
+        app.add_observer(load_on_default_event);
 
-        app.update();
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            commands.trigger_load(LoadWorld::default_from_file(SAVE_PATH));
+        });
 
         assert!(app.world().contains_resource::<Foo>());
 

@@ -1,6 +1,7 @@
 use std::fs;
 
 use bevy::prelude::*;
+use bevy_ecs::system::RunSystemOnce;
 use moonshine_save::prelude::*;
 
 const SAVE_PATH: &str = "test_unsaved.ron";
@@ -11,22 +12,26 @@ fn app() -> App {
     app
 }
 
+#[test]
 fn main() {
     {
         let mut app = app();
-        app.add_plugins(SavePlugin)
-            .add_systems(PreUpdate, save_default().into(static_file(SAVE_PATH)));
+        app.add_observer(save_on_default_event);
 
         let entity = app
             .world_mut()
-            .spawn(Save)
-            .with_children(|parent| {
-                parent.spawn((Name::new("A"), Save));
-                parent.spawn(Name::new("B")); // !!! DANGER: Unsaved, referenced entity
+            .run_system_once(|mut commands: Commands| {
+                let entity = commands
+                    .spawn(Save)
+                    .with_children(|parent| {
+                        parent.spawn((Name::new("A"), Save));
+                        parent.spawn(Name::new("B")); // !!! DANGER: Unsaved, referenced entity
+                    })
+                    .id();
+                commands.trigger_save(SaveWorld::default_into_file(SAVE_PATH));
+                entity
             })
-            .id();
-
-        app.update();
+            .unwrap();
 
         let world = app.world();
         let children = world.get::<Children>(entity).unwrap();
@@ -39,13 +44,15 @@ fn main() {
 
     {
         let mut app = app();
-        app.add_plugins(LoadPlugin)
-            .add_systems(PreUpdate, load(static_file(SAVE_PATH)));
+        app.add_observer(load_on_default_event);
 
-        // Spawn an entity to offset indices
-        app.world_mut().spawn_empty();
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            // Spawn an entity to offset indices
+            commands.spawn_empty();
 
-        app.update();
+            // Load
+            commands.trigger_load(LoadWorld::default_from_file(SAVE_PATH));
+        });
 
         let world = app.world_mut();
         let (_, children) = world.query::<(Entity, &Children)>().single(world).unwrap();
