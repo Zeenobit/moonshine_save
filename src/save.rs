@@ -325,7 +325,8 @@ fn save_world<E: SaveEvent>(event: E, world: &mut World) -> Result<Saved, SaveEr
     }
 }
 
-// ------------------
+// TODO: REMOVE LEGACY API BELOW
+// VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
 
 /// A [`Plugin`] which configures [`SaveSystem`] in [`PreUpdate`] schedule.
 pub struct SavePlugin;
@@ -703,6 +704,162 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::fs::*;
+
+    use bevy::prelude::*;
+    use bevy_ecs::system::RunSystemOnce;
+
+    use super::*;
+
+    #[derive(Component, Default, Reflect)]
+    #[reflect(Component)]
+    #[require(Save)]
+    struct Foo;
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).register_type::<Foo>();
+        app
+    }
+
+    #[test]
+    fn test_save_into_file() {
+        #[derive(Resource)]
+        struct EventTriggered;
+
+        pub const PATH: &str = "test_save_into_file.ron";
+        let mut app = app();
+        app.add_observer(save_on_default_event);
+
+        app.add_observer(|_: Trigger<OnSave>, mut commands: Commands| {
+            commands.insert_resource(EventTriggered);
+        });
+
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            commands.spawn((Foo, Save));
+            commands.trigger_save(SaveWorld::default_into_file(PATH));
+        });
+
+        let data = read_to_string(PATH).unwrap();
+        let world = app.world();
+        assert!(data.contains("Foo"));
+        assert!(!world.contains_resource::<Saved>());
+        assert!(world.contains_resource::<EventTriggered>());
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_save_into_stream() {
+        pub const PATH: &str = "test_save_to_stream.ron";
+
+        let mut app = app();
+        app.add_observer(save_on_default_event);
+
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            commands.spawn((Foo, Save));
+            commands.trigger_save(SaveWorld::default_into_stream(File::create(PATH).unwrap()));
+        });
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Foo"));
+        assert!(!app.world().contains_resource::<Saved>());
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_save_resource() {
+        pub const PATH: &str = "test_save_resource.ron";
+
+        #[derive(Resource, Default, Reflect)]
+        #[reflect(Resource)]
+        struct Bar;
+
+        let mut app = app();
+        app.register_type::<Bar>()
+            .add_observer(save_on_default_event);
+
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            commands.insert_resource(Bar);
+            commands.trigger_save(
+                SaveWorld::default_into_stream(File::create(PATH).unwrap())
+                    .include_resource::<Bar>(),
+            );
+        });
+
+        app.update();
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Bar"));
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_save_without_component() {
+        pub const PATH: &str = "test_save_without_component.ron";
+
+        #[derive(Component, Default, Reflect)]
+        #[reflect(Component)]
+        #[require(Save)]
+        struct Baz;
+
+        let mut app = app();
+        app.add_observer(save_on_default_event);
+
+        let _ = app.world_mut().run_system_once(|mut commands: Commands| {
+            commands.spawn((Foo, Baz, Save));
+            commands.trigger_save(SaveWorld::default_into_file(PATH).exclude_component::<Baz>());
+        });
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Foo"));
+        assert!(!data.contains("Baz"));
+
+        remove_file(PATH).unwrap();
+    }
+
+    #[test]
+    fn test_map_component() {
+        pub const PATH: &str = "test_map_component.ron";
+
+        #[derive(Component, Default)]
+        struct Bar(#[allow(dead_code)] u32); // Not serializable
+
+        #[derive(Component, Default, Reflect)]
+        #[reflect(Component)]
+        struct Baz(u32); // Serializable
+
+        let mut app = app();
+        app.register_type::<Baz>()
+            .add_observer(save_on_default_event);
+
+        let entity = app
+            .world_mut()
+            .run_system_once(|mut commands: Commands| {
+                let entity = commands.spawn((Bar(12), Save)).id();
+                commands.trigger_save(
+                    SaveWorld::default_into_file(PATH).map_component::<Bar>(|Bar(i): &Bar| Baz(*i)),
+                );
+                entity
+            })
+            .unwrap();
+
+        let data = read_to_string(PATH).unwrap();
+        assert!(data.contains("Baz"));
+        assert!(data.contains("(12)"));
+        assert!(!data.contains("Bar"));
+        assert!(app.world().entity(entity).contains::<Bar>());
+        assert!(!app.world().entity(entity).contains::<Baz>());
+
+        remove_file(PATH).unwrap();
+    }
+}
+
+#[cfg(test)]
+#[allow(deprecated)]
+mod tests_legacy {
     use std::{fs::*, path::Path};
 
     use bevy::prelude::*;
@@ -726,7 +883,7 @@ mod tests {
         #[derive(Resource)]
         struct EventTriggered;
 
-        pub const PATH: &str = "test_save_into_file.ron";
+        pub const PATH: &str = "test_save_into_file_legacy.ron";
         let mut app = app();
         app.add_systems(PreUpdate, save_default().into(static_file(PATH)));
 
@@ -748,7 +905,7 @@ mod tests {
 
     #[test]
     fn test_save_into_stream() {
-        pub const PATH: &str = "test_save_to_stream.ron";
+        pub const PATH: &str = "test_save_to_stream_legacy.ron";
 
         struct SaveStream;
 
@@ -775,7 +932,7 @@ mod tests {
 
     #[test]
     fn test_save_into_file_from_resource() {
-        pub const PATH: &str = "test_save_into_file_from_resource.ron";
+        pub const PATH: &str = "test_save_into_file_from_resource_legacy.ron";
 
         #[derive(Resource)]
         struct SaveRequest;
@@ -805,7 +962,7 @@ mod tests {
 
     #[test]
     fn test_save_into_stream_from_resource() {
-        pub const PATH: &str = "test_save_into_stream_from_resource.ron";
+        pub const PATH: &str = "test_save_into_stream_from_resource_legacy.ron";
 
         #[derive(Resource)]
         struct SaveRequest(&'static str);
@@ -838,7 +995,7 @@ mod tests {
 
     #[test]
     fn test_save_into_file_from_event() {
-        pub const PATH: &str = "test_save_into_file_from_event.ron";
+        pub const PATH: &str = "test_save_into_file_from_event_legacy.ron";
 
         #[derive(Event)]
         struct SaveRequest;
@@ -867,7 +1024,7 @@ mod tests {
 
     #[test]
     fn test_save_into_stream_from_event() {
-        pub const PATH: &str = "test_save_into_stream_from_event.ron";
+        pub const PATH: &str = "test_save_into_stream_from_event_legacy.ron";
 
         #[derive(Event)]
         struct SaveRequest(&'static str);
@@ -898,7 +1055,7 @@ mod tests {
 
     #[test]
     fn test_save_resource() {
-        pub const PATH: &str = "test_save_resource.ron";
+        pub const PATH: &str = "test_save_resource_legacy.ron";
 
         #[derive(Resource, Default, Reflect)]
         #[reflect(Resource)]
@@ -924,7 +1081,7 @@ mod tests {
 
     #[test]
     fn test_save_without_component() {
-        pub const PATH: &str = "test_save_without_component.ron";
+        pub const PATH: &str = "test_save_without_component_legacy.ron";
 
         #[derive(Component, Default, Reflect)]
         #[reflect(Component)]
@@ -950,7 +1107,7 @@ mod tests {
 
     #[test]
     fn test_save_without_component_dynamic() {
-        pub const PATH: &str = "test_save_without_component_dynamic.ron";
+        pub const PATH: &str = "test_save_without_component_dynamic_legacy.ron";
 
         #[derive(Component, Default, Reflect)]
         #[reflect(Component)]
@@ -979,7 +1136,7 @@ mod tests {
 
     #[test]
     fn test_save_map_component() {
-        pub const PATH: &str = "test_save_map_component.ron";
+        pub const PATH: &str = "test_save_map_component_legacy.ron";
 
         #[derive(Component, Default)]
         struct Foo(#[allow(dead_code)] u32); // Not serializable
