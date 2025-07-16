@@ -108,7 +108,7 @@ pub struct SaveWorld<F: QueryFilter = DefaultSaveFilter> {
 }
 
 impl<F: QueryFilter> SaveWorld<F> {
-    /// Creates a new [`SaveWorld`] event with the given [`SaveInput`] and [`SaveOutput`].
+    /// Creates a new [`SaveWorld`] event with the given [`SaveOutput`].
     pub fn new(output: SaveOutput) -> Self {
         Self {
             entities: EntityFilter::allow_all(),
@@ -146,25 +146,25 @@ impl<F: QueryFilter> SaveWorld<F> {
         }
     }
 
-    /// Includes the given [`Resource`] in the [`SaveInput`].
+    /// Includes the given [`Resource`] in the save data.
     pub fn include_resource<R: Resource>(mut self) -> Self {
         self.resources = self.resources.allow::<R>();
         self
     }
 
-    /// Includes the given [`Resource`] by its [`TypeId`] in the [`SaveInput`].
+    /// Includes the given [`Resource`] by its [`TypeId`] in the save data.
     pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
         self.resources = self.resources.allow_by_id(type_id);
         self
     }
 
-    /// Excludes the given [`Component`] from the [`SaveInput`].
+    /// Excludes the given [`Component`] from the save data.
     pub fn exclude_component<T: Component>(mut self) -> Self {
         self.components = self.components.deny::<T>();
         self
     }
 
-    /// Excludes the given [`Component`] by its [`TypeId`] from the [`SaveInput`].
+    /// Excludes the given [`Component`] by its [`TypeId`] from the save data.
     pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
         self.components = self.components.deny_by_id(type_id);
         self
@@ -273,6 +273,7 @@ impl SaveOutput {
         Self::Stream(Box::new(stream))
     }
 
+    /// Invalidates this [`SaveOutput`] and returns it if it was valid.
     pub fn consume(&mut self) -> Option<SaveOutput> {
         let output = std::mem::replace(self, SaveOutput::Invalid);
         if let SaveOutput::Invalid = output {
