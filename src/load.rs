@@ -2,6 +2,7 @@ use std::io::{self, Read};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
+use bevy_scene::DynamicScene;
 use serde::de::DeserializeSeed;
 
 use bevy_app::{App, Plugin, PreUpdate};
@@ -197,6 +198,10 @@ pub enum LoadInput {
     File(PathBuf),
     /// Load from a [`Read`] stream.
     Stream(Box<dyn LoadStream>),
+    /// Load from a [`DynamicScene`].
+    ///
+    /// This is useful if you would like to deserialize the scene manually from any data source.
+    Scene(DynamicScene),
     #[doc(hidden)]
     Invalid,
 }
@@ -269,26 +274,27 @@ pub fn load_on<E: LoadEvent>(trigger: SingleTrigger<E>, world: &mut World) {
 }
 
 fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, LoadError> {
-    // Read
-    let mut bytes = Vec::new();
-    match event.input() {
+    // Deserialize
+    let scene = match event.input() {
         LoadInput::File(path) => {
-            bytes = std::fs::read(&path)?;
+            let bytes = std::fs::read(&path)?;
+            let mut deserializer = ron::Deserializer::from_bytes(&bytes)?;
+            let type_registry = &world.resource::<AppTypeRegistry>().read();
+            let scene_deserializer = SceneDeserializer { type_registry };
+            scene_deserializer.deserialize(&mut deserializer)?
         }
         LoadInput::Stream(mut stream) => {
+            let mut bytes = Vec::new();
             stream.read_to_end(&mut bytes)?;
+            let mut deserializer = ron::Deserializer::from_bytes(&bytes)?;
+            let type_registry = &world.resource::<AppTypeRegistry>().read();
+            let scene_deserializer = SceneDeserializer { type_registry };
+            scene_deserializer.deserialize(&mut deserializer)?
         }
+        LoadInput::Scene(scene) => scene,
         LoadInput::Invalid => {
             panic!("LoadInput is invalid");
         }
-    };
-
-    // Deserialize
-    let scene = {
-        let mut deserializer = ron::Deserializer::from_bytes(&bytes)?;
-        let type_registry = &world.resource::<AppTypeRegistry>().read();
-        let scene_deserializer = SceneDeserializer { type_registry };
-        scene_deserializer.deserialize(&mut deserializer)?
     };
 
     // Unload
