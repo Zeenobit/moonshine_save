@@ -224,6 +224,7 @@ impl LoadInput {
         Self::Stream(Box::new(stream))
     }
 
+    /// Invalidates this [`LoadInput`] and returns it if it was valid.
     pub fn consume(&mut self) -> Option<LoadInput> {
         let input = std::mem::replace(self, LoadInput::Invalid);
         if let LoadInput::Invalid = input {
@@ -242,7 +243,7 @@ where
 
 impl<S: Read> LoadStream for S where S: 'static + Send + Sync {}
 
-/// A [`Resource`] which contains the loaded entity map. See [`FromLoaded`] for usage.
+/// Contains the loaded entity map.
 #[derive(Resource)]
 pub struct Loaded {
     /// The map of all loaded entities and their new entity IDs.

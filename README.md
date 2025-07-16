@@ -40,9 +40,9 @@ pub struct MyComponent;
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins)
-        // Register saved components:
-        .register_type::<MyComponent>()
+
+    // Register saved components:
+    app.register_type::<MyComponent>()
         // Register default save/load observers:
         .add_observer(save_on_default_event)
         .add_observer(load_on_default_event);
@@ -74,8 +74,7 @@ To use this crate as intended, you should design your game logic with this separ
 - Create a link between saved entities and their view entity.
   - It is good to use [Relationship](https://docs.rs/bevy/latest/bevy/ecs/relationship/trait.Relationship.html) for this, but this mapping can exist anywhere.
 
-> [!TIP]
-> See [👁️ Moonshine View](https://github.com/Zeenobit/moonshine_view) for a generic implementation of this pattern.
+> 💡 Tip: See [👁️ Moonshine View](https://github.com/Zeenobit/moonshine_view) for a generic implementation of this pattern.
 
 For example, suppose we want to represent a player character in a game.
 Various components are used to store the logical state of the player, such as `Health`, `Inventory`, or `Weapon`.
@@ -208,10 +207,9 @@ See documentation for full details and examples.
 
 ### Loading
 
-Before loading, mark your visual and aesthetic entities ("view" entities) with [`Unload`](https://docs.rs/moonshine-save/latest/moonshine_save/load/struct.Unload.html).
+Before loading, mark your visual and aesthetic entities ("view" entities) with [`Unload`].
 
-> [!TIP]
-> [👁️ Moonshine View](https://github.com/Zeenobit/moonshine_view) does this automatically for all "view entities".
+> 💡 Tip: [👁️ Moonshine View](https://github.com/Zeenobit/moonshine_view) does this automatically for all "view entities".
 
 Similar to [`Save`], this is a marker which can be added to bundles or inserted into entities like a regular component.
 
@@ -368,6 +366,7 @@ You may also contact me on the official [Bevy Discord](https://discord.gg/bevy) 
 [`DynamicScene`]:https://docs.rs/bevy/latest/bevy/prelude/struct.DynamicScene.html
 [`DynamicSceneBuilder`]:https://docs.rs/bevy/latest/bevy/prelude/struct.DynamicSceneBuilder.html
 [`Save`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.Save.html
+[`Unload`]:https://docs.rs/moonshine-save/latest/moonshine_save/load/struct.Unload.html
 [`SavePlugin`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/struct.SavePlugin.html
 [`SavePipeline`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/type.SavePipeline.html
 [`save_on_default_event`]:https://docs.rs/moonshine-save/latest/moonshine_save/save/fn.save_on_default_event.html
