@@ -40,9 +40,9 @@ pub struct MyComponent;
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins)
-        // Register saved components:
-        .register_type::<MyComponent>()
+
+    // Register saved components:
+    app.register_type::<MyComponent>()
         // Register default save/load observers:
         .add_observer(save_on_default_event)
         .add_observer(load_on_default_event);
@@ -207,7 +207,7 @@ See documentation for full details and examples.
 
 ### Loading
 
-Before loading, mark your visual and aesthetic entities ("view" entities) with [`Unload`](https://docs.rs/moonshine-save/latest/moonshine_save/load/struct.Unload.html).
+Before loading, mark your visual and aesthetic entities ("view" entities) with [`Unload`].
 
 > 💡 Tip: [👁️ Moonshine View](https://github.com/Zeenobit/moonshine_view) does this automatically for all "view entities".
 
