@@ -5,24 +5,16 @@ use std::path::PathBuf;
 use bevy_scene::DynamicScene;
 use serde::de::DeserializeSeed;
 
-use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::entity::EntityHashMap;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryFilter;
-use bevy_ecs::schedule::ScheduleConfigs;
-use bevy_ecs::system::ScheduleSystem;
 use bevy_log::prelude::*;
 use bevy_scene::{ron, serde::SceneDeserializer, SceneSpawnError};
 
 use moonshine_util::event::{SingleEvent, SingleTrigger, TriggerSingle};
-use moonshine_util::system::*;
 
-// Legacy API:
-use crate::{
-    save::{Save, SaveSystem},
-    FileFromEvent, FileFromResource, GetFilePath, GetStaticStream, GetStream, MapComponent,
-    Pipeline, SceneMapper, StaticFile, StaticStream, StreamFromEvent, StreamFromResource,
-};
+use crate::save::Save;
+use crate::{MapComponent, SceneMapper};
 
 /// A [`Component`] which marks its [`Entity`] to be despawned prior to load.
 ///
@@ -103,11 +95,22 @@ pub trait LoadEvent: SingleEvent {
     /// Returns the [`LoadInput`] of the load process.
     fn input(&mut self) -> LoadInput;
 
+    /// Called once before the load process starts.
+    fn before_load(&mut self, world: &mut World) {
+        let _ = world;
+    }
+
     /// Called for all entities matching the [`UnloadFilter`](LoadEvent::UnloadFilter).
-    fn before_unload(&mut self, entity: EntityWorldMut);
+    fn before_unload(&mut self, world: &mut World, entities: &[Entity]) {
+        let _ = world;
+        let _ = entities;
+    }
 
     /// Called for all entities after they have been loaded.
-    fn after_load(&mut self, entity: EntityWorldMut);
+    fn after_load(&mut self, world: &mut World, loaded: &Loaded) {
+        let _ = world;
+        let _ = loaded;
+    }
 }
 
 /// A generic [`LoadEvent`] which loads the world from a file or stream.
@@ -182,13 +185,17 @@ where
     type UnloadFilter = U;
 
     fn input(&mut self) -> LoadInput {
-        std::mem::replace(&mut self.input, LoadInput::Invalid)
+        self.input.consume().unwrap()
     }
 
-    fn before_unload(&mut self, _: EntityWorldMut) {}
-
-    fn after_load(&mut self, entity: EntityWorldMut) {
-        self.mapper.replace(entity);
+    fn after_load(&mut self, world: &mut World, loaded: &Loaded) {
+        for entity in loaded.entities() {
+            let Ok(entity) = world.get_entity_mut(entity) else {
+                // Some entities may be invalid during load. See `unsaved.rs` test.
+                continue;
+            };
+            self.mapper.replace(entity);
+        }
     }
 }
 
@@ -206,7 +213,27 @@ pub enum LoadInput {
     Invalid,
 }
 
-#[doc(hidden)]
+impl LoadInput {
+    /// Creates a new [`LoadInput`] which loads from a file at the given path.
+    pub fn file(path: impl Into<PathBuf>) -> Self {
+        Self::File(path.into())
+    }
+
+    /// Creates a new [`LoadInput`] which loads from a [`Read`] stream.
+    pub fn stream<S: LoadStream + 'static>(stream: S) -> Self {
+        Self::Stream(Box::new(stream))
+    }
+
+    pub fn consume(&mut self) -> Option<LoadInput> {
+        let input = std::mem::replace(self, LoadInput::Invalid);
+        if let LoadInput::Invalid = input {
+            return None;
+        }
+        Some(input)
+    }
+}
+
+/// Alias for a `'static` [`Read`] stream.
 pub trait LoadStream: Read
 where
     Self: 'static + Send + Sync,
@@ -214,6 +241,23 @@ where
 }
 
 impl<S: Read> LoadStream for S where S: 'static + Send + Sync {}
+
+/// A [`Resource`] which contains the loaded entity map. See [`FromLoaded`] for usage.
+#[derive(Resource)]
+pub struct Loaded {
+    /// The map of all loaded entities and their new entity IDs.
+    pub entity_map: EntityHashMap<Entity>,
+}
+
+impl Loaded {
+    /// Iterates over all loaded entities.
+    ///
+    /// Note that not all of these entities may be valid. This would indicate an error with save data.
+    /// See `unsaved.rs` test for an example of how this may happen.
+    pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.entity_map.values().copied()
+    }
+}
 
 /// An [`Event`] triggered at the end of the load process.
 ///
@@ -274,6 +318,9 @@ pub fn load_on<E: LoadEvent>(trigger: SingleTrigger<E>, world: &mut World) {
 }
 
 fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, LoadError> {
+    // Notify
+    event.before_load(world);
+
     // Deserialize
     let scene = match event.input() {
         LoadInput::File(path) => {
@@ -298,15 +345,12 @@ fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, L
     };
 
     // Unload
-    let entities = world
+    let entities: Vec<_> = world
         .query_filtered::<Entity, E::UnloadFilter>()
         .iter(world)
-        .collect::<Vec<_>>();
+        .collect();
+    event.before_unload(world, &entities);
     for entity in entities {
-        if let Ok(entity) = world.get_entity_mut(entity) {
-            event.before_unload(entity);
-        }
-
         if let Ok(entity) = world.get_entity_mut(entity) {
             entity.despawn();
         }
@@ -315,216 +359,10 @@ fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, L
     // Load
     let mut entity_map = EntityHashMap::default();
     scene.write_to_world(world, &mut entity_map)?;
-    for entity in entity_map.values() {
-        if let Ok(entity) = world.get_entity_mut(*entity) {
-            event.after_load(entity);
-        }
-    }
+    let loaded = Loaded { entity_map };
+    event.after_load(world, &loaded);
 
-    Ok(Loaded { entity_map })
-}
-
-/// A [`Plugin`] which configures [`LoadSystem`] in [`PreUpdate`] schedule.
-pub struct LoadPlugin;
-
-impl Plugin for LoadPlugin {
-    fn build(&self, app: &mut App) {
-        app.configure_sets(
-            PreUpdate,
-            (
-                LoadSystem::Load,
-                LoadSystem::PostLoad.run_if(has_resource::<Loaded>),
-            )
-                .chain()
-                .before(SaveSystem::Save),
-        )
-        .add_systems(
-            PreUpdate,
-            remove_resource::<Loaded>.in_set(LoadSystem::PostLoad),
-        )
-        .add_observer(load_on::<LoadWorld>);
-    }
-}
-
-// TODO: REMOVE LEGACY API BELOW
-// VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
-
-#[deprecated]
-#[doc(hidden)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum LoadSystem {
-    /// Reserved for systems which deserialize [`Saved`] data and process the output.
-    Load,
-    /// Runs after [`LoadSystem::Load`].
-    PostLoad,
-}
-
-impl SystemSet for LoadSystem {
-    fn dyn_clone(&self) -> Box<dyn SystemSet> {
-        Box::new(self.clone())
-    }
-
-    fn as_dyn_eq(&self) -> &dyn bevy_ecs::label::DynEq {
-        self
-    }
-
-    fn dyn_hash(&self, mut state: &mut dyn std::hash::Hasher) {
-        let ty_id = std::any::TypeId::of::<Self>();
-        std::hash::Hash::hash(&ty_id, &mut state);
-        std::hash::Hash::hash(self, &mut state);
-    }
-}
-
-/// A [`Resource`] which contains the loaded entity map. See [`FromLoaded`] for usage.
-#[derive(Resource)]
-pub struct Loaded {
-    /// The map of all loaded entities and their new entity IDs.
-    pub entity_map: EntityHashMap<Entity>,
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub trait LoadPipeline: Pipeline {
-    fn mapper(&self) -> Option<SceneMapper> {
-        None
-    }
-
-    fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>>;
-}
-
-impl LoadPipeline for StaticFile {
-    fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
-        let path = self.0.clone();
-        IntoSystem::into_system(move || Some(LoadWorld::from_file(path.clone())))
-    }
-}
-
-impl<S: GetStaticStream> LoadPipeline for StaticStream<S>
-where
-    S::Stream: Read,
-{
-    fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
-        IntoSystem::into_system(|| Some(LoadWorld::from_stream(S::stream())))
-    }
-}
-
-impl<R> LoadPipeline for FileFromResource<R>
-where
-    R: Resource + GetFilePath,
-{
-    fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
-        IntoSystem::into_system(|res: Option<Res<R>>| res.map(|r| LoadWorld::from_file(r.path())))
-    }
-}
-
-impl<R: GetStream + Resource> LoadPipeline for StreamFromResource<R>
-where
-    R::Stream: Read,
-{
-    fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
-        IntoSystem::into_system(|res: Option<Res<R>>| {
-            res.map(|r| LoadWorld::from_stream(r.stream()))
-        })
-    }
-}
-
-impl<E> LoadPipeline for FileFromEvent<E>
-where
-    E: Event + GetFilePath,
-{
-    fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
-        IntoSystem::into_system(|mut events: EventReader<E>| {
-            let mut iter = events.read();
-            let event = iter.next().unwrap();
-            if iter.next().is_some() {
-                warn!("multiple load request events received; only the first one is processed.");
-            }
-            Some(LoadWorld::from_file(event.path()))
-        })
-    }
-}
-
-impl<E: GetStream + Event> LoadPipeline for StreamFromEvent<E>
-where
-    E::Stream: Read,
-{
-    fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
-        IntoSystem::into_system(|mut events: EventReader<E>| {
-            let mut iter = events.read();
-            let event = iter.next().unwrap();
-            if iter.next().is_some() {
-                warn!("multiple load request events received; only the first one is processed.");
-            }
-            Some(LoadWorld::from_stream(event.stream()))
-        })
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn load(p: impl LoadPipeline) -> ScheduleConfigs<ScheduleSystem> {
-    let source = p.as_load_event_source();
-    let mapper = p.mapper();
-    source
-        .pipe(move |In(event): In<Option<LoadWorld>>, world: &mut World| {
-            let Some(mut event) = event else {
-                return;
-            };
-            if let Some(mapper) = &mapper {
-                event.mapper = mapper.clone()
-            }
-            world.trigger_single(event);
-            p.clean(world);
-        })
-        .in_set(LoadSystem::Load)
-}
-
-#[doc(hidden)]
-pub trait LoadMapComponent: Sized {
-    #[doc(hidden)]
-    fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self>;
-}
-
-impl<P: Pipeline> LoadMapComponent for P {
-    fn map_component<U: Component>(self, m: impl MapComponent<U>) -> LoadPipelineBuilder<Self> {
-        LoadPipelineBuilder {
-            pipeline: self,
-            mapper: SceneMapper::default().map(m),
-        }
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub struct LoadPipelineBuilder<P> {
-    pipeline: P,
-    mapper: SceneMapper,
-}
-
-impl<P> LoadPipelineBuilder<P> {
-    #[doc(hidden)]
-    pub fn map_component<U: Component>(self, m: impl MapComponent<U>) -> Self {
-        Self {
-            mapper: self.mapper.map(m),
-            ..self
-        }
-    }
-}
-
-impl<P: Pipeline> Pipeline for LoadPipelineBuilder<P> {
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
-        self.pipeline.finish(pipeline)
-    }
-}
-
-impl<P: LoadPipeline> LoadPipeline for LoadPipelineBuilder<P> {
-    fn mapper(&self) -> Option<SceneMapper> {
-        Some(self.mapper.clone())
-    }
-
-    fn as_load_event_source(&self) -> impl System<In = (), Out = Option<LoadWorld>> {
-        self.pipeline.as_load_event_source()
-    }
+    Ok(loaded)
 }
 
 #[cfg(test)]
@@ -631,255 +469,6 @@ mod tests {
             .single(world)
             .is_ok());
         assert!(world.query_filtered::<(), With<Foo>>().iter(world).count() == 0);
-
-        remove_file(PATH).unwrap();
-    }
-}
-
-#[cfg(test)]
-mod tests_legacy {
-    use std::{fs::*, path::Path};
-
-    use bevy::prelude::*;
-
-    use super::*;
-    use crate::*;
-
-    pub const DATA: &str = "(
-        resources: {},
-        entities: {
-            4294967296: (
-                components: {
-                    \"moonshine_save::load::tests_legacy::Dummy\": (),
-                },
-            ),
-        },
-    )";
-
-    #[derive(Component, Default, Reflect)]
-    #[reflect(Component)]
-    struct Dummy;
-
-    fn app() -> App {
-        let mut app = App::new();
-        app.add_plugins((MinimalPlugins, LoadPlugin))
-            .register_type::<Dummy>();
-        app
-    }
-
-    #[test]
-    fn test_load_file() {
-        #[derive(Resource)]
-        struct EventTriggered;
-
-        pub const PATH: &str = "test_load_file_legacy.ron";
-
-        write(PATH, DATA).unwrap();
-
-        let mut app = app();
-        app.add_systems(PreUpdate, load(static_file(PATH)));
-
-        app.add_observer(|_: Trigger<OnLoad>, mut commands: Commands| {
-            commands.insert_resource(EventTriggered);
-        });
-
-        app.update();
-
-        let world = app.world_mut();
-        assert!(!world.contains_resource::<Loaded>());
-        assert!(world.contains_resource::<EventTriggered>());
-        assert!(world
-            .query_filtered::<(), With<Dummy>>()
-            .single(world)
-            .is_ok());
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_load_stream() {
-        pub const PATH: &str = "test_load_stream_legacy.ron";
-
-        struct LoadStream;
-
-        impl GetStaticStream for LoadStream {
-            type Stream = File;
-
-            fn stream() -> Self::Stream {
-                File::open(PATH).unwrap()
-            }
-        }
-
-        write(PATH, DATA).unwrap();
-
-        let mut app = app();
-        app.add_systems(PreUpdate, load(static_stream(LoadStream)));
-
-        app.update();
-
-        let world = app.world_mut();
-        assert!(!world.contains_resource::<Loaded>());
-        assert!(world
-            .query_filtered::<(), With<Dummy>>()
-            .single(world)
-            .is_ok());
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_load_file_from_resource() {
-        pub const PATH: &str = "test_load_file_from_resource_legacy.ron";
-
-        write(PATH, DATA).unwrap();
-
-        #[derive(Resource)]
-        struct LoadRequest;
-
-        impl GetFilePath for LoadRequest {
-            fn path(&self) -> &Path {
-                Path::new(PATH)
-            }
-        }
-
-        let mut app = app();
-        app.add_systems(PreUpdate, load(file_from_resource::<LoadRequest>()));
-
-        app.world_mut().insert_resource(LoadRequest);
-        app.update();
-
-        let world = app.world_mut();
-        assert!(world
-            .query_filtered::<(), With<Dummy>>()
-            .single(world)
-            .is_ok());
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_load_stream_from_resource() {
-        pub const PATH: &str = "test_load_stream_from_resource_legacy.ron";
-
-        write(PATH, DATA).unwrap();
-
-        #[derive(Resource)]
-        struct LoadRequest(&'static str);
-
-        impl GetStream for LoadRequest {
-            type Stream = File;
-
-            fn stream(&self) -> Self::Stream {
-                File::open(self.0).unwrap()
-            }
-        }
-
-        let mut app = app();
-        app.add_systems(PreUpdate, load(stream_from_resource::<LoadRequest>()));
-
-        app.world_mut().insert_resource(LoadRequest(PATH));
-        app.update();
-
-        let world = app.world_mut();
-        assert!(world
-            .query_filtered::<(), With<Dummy>>()
-            .single(world)
-            .is_ok());
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_load_file_from_event() {
-        pub const PATH: &str = "test_load_file_from_event_legacy.ron";
-
-        write(PATH, DATA).unwrap();
-
-        #[derive(Event)]
-        struct LoadRequest;
-
-        impl GetFilePath for LoadRequest {
-            fn path(&self) -> &Path {
-                Path::new(PATH)
-            }
-        }
-
-        let mut app = app();
-        app.add_event::<LoadRequest>()
-            .add_systems(PreUpdate, load(file_from_event::<LoadRequest>()));
-
-        app.world_mut().send_event(LoadRequest);
-        app.update();
-
-        let world = app.world_mut();
-        assert!(world
-            .query_filtered::<(), With<Dummy>>()
-            .single(world)
-            .is_ok());
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_load_stream_from_event() {
-        pub const PATH: &str = "test_load_stream_from_event_legacy.ron";
-
-        write(PATH, DATA).unwrap();
-
-        #[derive(Event)]
-        struct LoadRequest(&'static str);
-
-        impl GetStream for LoadRequest {
-            type Stream = File;
-
-            fn stream(&self) -> Self::Stream {
-                File::open(self.0).unwrap()
-            }
-        }
-
-        let mut app = app();
-        app.add_event::<LoadRequest>()
-            .add_systems(PreUpdate, load(stream_from_event::<LoadRequest>()));
-
-        app.world_mut().send_event(LoadRequest(PATH));
-        app.update();
-
-        let world = app.world_mut();
-        assert!(world
-            .query_filtered::<(), With<Dummy>>()
-            .single(world)
-            .is_ok());
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_load_map_component() {
-        pub const PATH: &str = "test_load_map_component_legacy.ron";
-
-        write(PATH, DATA).unwrap();
-
-        let mut app = app();
-
-        #[derive(Component)]
-        struct Foo; // Not serializable
-
-        app.add_systems(
-            PreUpdate,
-            load(static_file(PATH).map_component(|_: &Dummy| Foo)),
-        );
-
-        app.update();
-
-        let world = app.world_mut();
-        assert!(world
-            .query_filtered::<(), With<Foo>>()
-            .single(world)
-            .is_ok());
-        assert!(world
-            .query_filtered::<(), With<Dummy>>()
-            .single(world)
-            .is_err());
 
         remove_file(PATH).unwrap();
     }

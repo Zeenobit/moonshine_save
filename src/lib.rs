@@ -1,14 +1,9 @@
 #![doc = include_str!("../README.md")]
-#![allow(deprecated)] // TODO: Remove deprecated code
 #![warn(missing_docs)]
 
-use std::path::PathBuf;
-use std::{marker::PhantomData, path::Path};
+use std::marker::PhantomData;
 
 use bevy_ecs::prelude::*;
-use bevy_ecs::schedule::ScheduleConfigs;
-use bevy_ecs::system::ScheduleSystem;
-use moonshine_util::system::{has_resource, remove_resource};
 
 /// Types, traits, and functions related to loading.
 pub mod load;
@@ -19,161 +14,20 @@ pub mod save;
 /// Common elements for saving/loading world state.
 pub mod prelude {
     pub use crate::load::{
-        load_on, load_on_default_event, LoadError, LoadEvent, LoadInput, LoadPlugin, LoadWorld,
-        Loaded, OnLoad, TriggerLoad, Unload,
+        load_on, load_on_default_event, LoadError, LoadEvent, LoadInput, LoadWorld, Loaded, OnLoad,
+        TriggerLoad, Unload,
     };
 
     pub use crate::save::{
-        save_on, save_on_default_event, OnSave, Save, SaveError, SaveEvent, SaveOutput, SavePlugin,
-        SaveWorld, Saved, TriggerSave,
+        save_on, save_on_default_event, OnSave, Save, SaveError, SaveEvent, SaveOutput, SaveWorld,
+        Saved, TriggerSave,
     };
 
     pub use bevy_ecs::{
         entity::{EntityMapper, MapEntities},
         reflect::ReflectMapEntities,
     };
-
-    // Legacy API:
-    pub use crate::{
-        file_from_event, file_from_resource,
-        load::{load, LoadMapComponent, LoadSystem},
-        save::{save, save_all, save_default, save_with, SaveInput, SaveSystem},
-        static_file, GetFilePath,
-    };
 }
-
-#[deprecated]
-#[doc(hidden)]
-pub trait GetFilePath {
-    fn path(&self) -> &Path;
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub trait GetStaticStream: 'static + Send + Sync {
-    type Stream: 'static + Send + Sync;
-
-    fn stream() -> Self::Stream;
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub trait GetStream: 'static + Send + Sync {
-    type Stream: 'static + Send + Sync;
-
-    fn stream(&self) -> Self::Stream;
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub trait Pipeline: 'static + Send + Sync {
-    #[deprecated]
-    #[doc(hidden)]
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
-        pipeline.into_configs()
-    }
-
-    fn clean(&self, _world: &mut World) {}
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn static_file(path: impl Into<PathBuf>) -> StaticFile {
-    StaticFile(path.into())
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn static_stream<S>(stream: S) -> StaticStream<S> {
-    StaticStream(stream)
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn file_from_resource<R>() -> FileFromResource<R>
-where
-    R: Resource,
-{
-    FileFromResource(PhantomData::<R>)
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn stream_from_resource<R>() -> StreamFromResource<R>
-where
-    R: Resource,
-{
-    StreamFromResource(PhantomData::<R>)
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn file_from_event<E>() -> FileFromEvent<E>
-where
-    E: Event,
-{
-    FileFromEvent(PhantomData::<E>)
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn stream_from_event<E>() -> StreamFromEvent<E>
-where
-    E: Event,
-{
-    StreamFromEvent(PhantomData::<E>)
-}
-
-#[doc(hidden)]
-pub struct StaticFile(PathBuf);
-
-impl Pipeline for StaticFile {}
-
-#[doc(hidden)]
-#[derive(Clone)]
-pub struct StaticStream<S>(S);
-
-impl<S: 'static + Send + Sync> Pipeline for StaticStream<S> {}
-
-#[doc(hidden)]
-pub struct FileFromResource<R>(PhantomData<R>);
-
-impl<R: Resource> Pipeline for FileFromResource<R> {
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
-        pipeline
-            .pipe(remove_resource::<R>)
-            .run_if(has_resource::<R>)
-    }
-
-    fn clean(&self, world: &mut World) {
-        world.remove_resource::<R>();
-    }
-}
-
-#[doc(hidden)]
-pub struct StreamFromResource<R>(PhantomData<R>);
-
-impl<R: Resource> Pipeline for StreamFromResource<R> {
-    fn finish(&self, pipeline: impl System<In = (), Out = ()>) -> ScheduleConfigs<ScheduleSystem> {
-        pipeline
-            .pipe(remove_resource::<R>)
-            .run_if(has_resource::<R>)
-    }
-
-    fn clean(&self, world: &mut World) {
-        world.remove_resource::<R>();
-    }
-}
-
-#[doc(hidden)]
-pub struct FileFromEvent<E>(PhantomData<E>);
-
-impl<E: Event> Pipeline for FileFromEvent<E> {}
-
-#[doc(hidden)]
-pub struct StreamFromEvent<E>(PhantomData<E>);
-
-impl<E: Event> Pipeline for StreamFromEvent<E> {}
 
 /// A trait used for mapping components during a save operation.
 ///
@@ -235,21 +89,12 @@ impl SceneMapper {
     }
 }
 
-// TODO: Can we avoid this clone?
-impl Clone for SceneMapper {
-    fn clone(&self) -> Self {
-        Self(self.0.iter().map(|mapper| mapper.clone_dyn()).collect())
-    }
-}
-
 trait ComponentMapper: 'static + Send + Sync {
     fn apply(&mut self, entity: &mut EntityWorldMut);
 
     fn replace(&mut self, entity: &mut EntityWorldMut);
 
     fn undo(&mut self, entity: &mut EntityWorldMut);
-
-    fn clone_dyn(&self) -> Box<dyn ComponentMapper>;
 }
 
 struct ComponentMapperImpl<T: Component, M: MapComponent<T>>(M, PhantomData<T>);
@@ -275,10 +120,6 @@ impl<T: Component, M: MapComponent<T>> ComponentMapper for ComponentMapperImpl<T
 
     fn undo(&mut self, entity: &mut EntityWorldMut) {
         entity.remove::<M::Output>();
-    }
-
-    fn clone_dyn(&self) -> Box<dyn ComponentMapper> {
-        Box::new(Self::new(self.0.clone()))
     }
 }
 

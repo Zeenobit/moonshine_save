@@ -3,25 +3,15 @@ use std::io::{self, Write};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
-use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::entity::EntityHashSet;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryFilter;
-use bevy_ecs::schedule::ScheduleConfigs;
-use bevy_ecs::system::ScheduleSystem;
 use bevy_log::prelude::*;
 use bevy_scene::{ron, DynamicScene, DynamicSceneBuilder, SceneFilter};
 
-use moonshine_util::event::{AddSingleObserver, SingleEvent, SingleTrigger, TriggerSingle};
-use moonshine_util::system::*;
+use moonshine_util::event::{SingleEvent, SingleTrigger, TriggerSingle};
 
-use crate::{
-    FileFromEvent, FileFromResource, MapComponent, SceneMapper, StaticFile, StaticStream,
-    StreamFromEvent, StreamFromResource,
-};
-
-// Legacy API:
-use crate::{GetFilePath, GetStaticStream, GetStream, Pipeline};
+use crate::{MapComponent, SceneMapper};
 
 /// A [`Component`] which marks its [`Entity`] to be saved.
 #[derive(Component, Default, Debug, Clone)]
@@ -57,28 +47,60 @@ pub trait SaveEvent: SingleEvent {
     type SaveFilter: QueryFilter;
 
     /// Return `true` if the given [`Entity`] should be saved.
-    fn filter_entity(&self, entity: Entity) -> bool;
+    fn filter_entity(&self, entity: EntityRef) -> bool {
+        let _ = entity;
+        true
+    }
+
+    /// Called once before the save process starts.
+    fn before_save(&mut self, world: &mut World) {
+        let _ = world;
+    }
 
     /// Called for all saved entities before serialization.
-    fn before_serialize(&mut self, entity: EntityWorldMut);
+    fn before_serialize(&mut self, world: &mut World, entities: &[Entity]) {
+        let _ = world;
+        let _ = entities;
+    }
 
     /// Called for all saved entities after serialization.
-    fn after_serialize(&mut self, entity: EntityWorldMut);
+    fn after_save(&mut self, world: &mut World, saved: &Saved) {
+        let _ = world;
+        let _ = saved;
+    }
 
     /// Returns a [`SceneFilter`] for selecting which components should be saved.
-    fn component_filter(&self) -> SceneFilter;
+    fn component_filter(&mut self) -> SceneFilter {
+        SceneFilter::allow_all()
+    }
 
     /// Returns a [`SceneFilter`] for selecting which resources should be saved.
-    fn resource_filter(&self) -> SceneFilter;
+    fn resource_filter(&mut self) -> SceneFilter {
+        SceneFilter::deny_all()
+    }
 
     /// Returns the [`SaveOutput`] of the save process.
-    fn output(self) -> SaveOutput;
+    fn output(&mut self) -> SaveOutput;
 }
 
 /// A generic [`SaveEvent`] which can be used to save the [`World`].
 pub struct SaveWorld<F: QueryFilter = DefaultSaveFilter> {
-    /// Input parameters for the save process.
-    pub input: SaveInput,
+    /// A filter for selecting which entities should be saved.
+    ///
+    /// By default, all entities are selected.
+    pub entities: EntityFilter,
+    /// A filter for selecting which resources should be saved.
+    ///
+    /// By default, no resources are selected. Most Bevy resources are not safely serializable.
+    pub resources: SceneFilter,
+    /// A filter for selecting which components should be saved.
+    ///
+    /// By default, all serializable components are selected.
+    pub components: SceneFilter,
+    /// A mapper for transforming components during the save process.
+    ///
+    /// See [`MapComponent`] for more information.
+    pub mapper: SceneMapper,
     /// Output of the saved world.
     pub output: SaveOutput,
     #[doc(hidden)]
@@ -87,9 +109,12 @@ pub struct SaveWorld<F: QueryFilter = DefaultSaveFilter> {
 
 impl<F: QueryFilter> SaveWorld<F> {
     /// Creates a new [`SaveWorld`] event with the given [`SaveInput`] and [`SaveOutput`].
-    pub fn new(input: SaveInput, output: SaveOutput) -> Self {
+    pub fn new(output: SaveOutput) -> Self {
         Self {
-            input,
+            entities: EntityFilter::allow_all(),
+            resources: SceneFilter::deny_all(),
+            components: SceneFilter::allow_all(),
+            mapper: SceneMapper::default(),
             output,
             filter: PhantomData,
         }
@@ -99,7 +124,10 @@ impl<F: QueryFilter> SaveWorld<F> {
     /// given [`QueryFilter`] into a file at the given path.
     pub fn into_file(path: impl Into<PathBuf>) -> Self {
         Self {
-            input: SaveInput::default(),
+            entities: EntityFilter::allow_all(),
+            resources: SceneFilter::deny_all(),
+            components: SceneFilter::allow_all(),
+            mapper: SceneMapper::default(),
             output: SaveOutput::file(path),
             filter: PhantomData,
         }
@@ -109,7 +137,10 @@ impl<F: QueryFilter> SaveWorld<F> {
     /// given [`QueryFilter`] into a [`Write`] stream.
     pub fn into_stream(stream: impl SaveStream) -> Self {
         Self {
-            input: SaveInput::default(),
+            entities: EntityFilter::allow_all(),
+            resources: SceneFilter::deny_all(),
+            components: SceneFilter::allow_all(),
+            mapper: SceneMapper::default(),
             output: SaveOutput::stream(stream),
             filter: PhantomData,
         }
@@ -117,31 +148,31 @@ impl<F: QueryFilter> SaveWorld<F> {
 
     /// Includes the given [`Resource`] in the [`SaveInput`].
     pub fn include_resource<R: Resource>(mut self) -> Self {
-        self.input.resources = self.input.resources.allow::<R>();
+        self.resources = self.resources.allow::<R>();
         self
     }
 
     /// Includes the given [`Resource`] by its [`TypeId`] in the [`SaveInput`].
     pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
-        self.input.resources = self.input.resources.allow_by_id(type_id);
+        self.resources = self.resources.allow_by_id(type_id);
         self
     }
 
     /// Excludes the given [`Component`] from the [`SaveInput`].
     pub fn exclude_component<T: Component>(mut self) -> Self {
-        self.input.components = self.input.components.deny::<T>();
+        self.components = self.components.deny::<T>();
         self
     }
 
     /// Excludes the given [`Component`] by its [`TypeId`] from the [`SaveInput`].
     pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
-        self.input.components = self.input.components.deny_by_id(type_id);
+        self.components = self.components.deny_by_id(type_id);
         self
     }
 
     /// Maps the given [`Component`] into another using a [component mapper](MapComponent) before saving.
     pub fn map_component<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
-        self.input.mapper = self.input.mapper.map(m);
+        self.mapper = self.mapper.map(m);
         self
     }
 }
@@ -180,70 +211,41 @@ where
 {
     type SaveFilter = F;
 
-    fn filter_entity(&self, entity: Entity) -> bool {
-        match &self.input.entities {
-            EntityFilter::Allow(allow) => allow.contains(&entity),
-            EntityFilter::Block(block) => !block.contains(&entity),
+    fn filter_entity(&self, entity: EntityRef) -> bool {
+        match &self.entities {
+            EntityFilter::Allow(allow) => allow.contains(&entity.id()),
+            EntityFilter::Block(block) => !block.contains(&entity.id()),
         }
     }
 
-    fn before_serialize(&mut self, entity: EntityWorldMut) {
-        self.input.mapper.apply(entity);
+    fn before_serialize(&mut self, world: &mut World, entities: &[Entity]) {
+        for entity in entities {
+            self.mapper.apply(world.entity_mut(*entity));
+        }
     }
 
-    fn after_serialize(&mut self, entity: EntityWorldMut) {
-        self.input.mapper.undo(entity);
+    fn after_save(&mut self, world: &mut World, saved: &Saved) {
+        for entity in saved.entities() {
+            self.mapper.undo(world.entity_mut(entity));
+        }
     }
 
-    fn component_filter(&self) -> SceneFilter {
-        self.input.components.clone()
+    fn component_filter(&mut self) -> SceneFilter {
+        std::mem::replace(&mut self.components, SceneFilter::Unset)
     }
 
-    fn resource_filter(&self) -> SceneFilter {
-        self.input.resources.clone()
+    fn resource_filter(&mut self) -> SceneFilter {
+        std::mem::replace(&mut self.resources, SceneFilter::Unset)
     }
 
-    fn output(self) -> SaveOutput {
-        self.output
+    fn output(&mut self) -> SaveOutput {
+        self.output.consume().unwrap()
     }
 }
 
 /// Filter used for the default [`SaveWorld`] event.
 /// This includes all entities with the [`Save`] component.
 pub type DefaultSaveFilter = With<Save>;
-
-/// Input parameters for the save process.
-#[deprecated]
-#[derive(Clone)]
-pub struct SaveInput {
-    /// A filter for selecting which entities should be saved.
-    ///
-    /// By default, all entities are selected.
-    pub entities: EntityFilter,
-    /// A filter for selecting which resources should be saved.
-    ///
-    /// By default, no resources are selected. Most Bevy resources are not safely serializable.
-    pub resources: SceneFilter,
-    /// A filter for selecting which components should be saved.
-    ///
-    /// By default, all serializable components are selected.
-    pub components: SceneFilter,
-    /// A mapper for transforming components during the save process.
-    ///
-    /// See [`MapComponent`] for more information.
-    pub mapper: SceneMapper,
-}
-
-impl Default for SaveInput {
-    fn default() -> Self {
-        SaveInput {
-            entities: EntityFilter::any(),
-            components: SceneFilter::allow_all(),
-            resources: SceneFilter::deny_all(),
-            mapper: SceneMapper::default(),
-        }
-    }
-}
 
 /// Output of the save process.
 pub enum SaveOutput {
@@ -256,6 +258,8 @@ pub enum SaveOutput {
     /// This is useful if you would like to process the [`Saved`] data manually.
     /// You can observe the [`OnSave`] event for post-processing logic.
     Drop,
+    #[doc(hidden)]
+    Invalid,
 }
 
 impl SaveOutput {
@@ -267,6 +271,14 @@ impl SaveOutput {
     /// Creates a new [`SaveOutput`] which saves into a [`Write`] stream.
     pub fn stream<S: SaveStream + 'static>(stream: S) -> Self {
         Self::Stream(Box::new(stream))
+    }
+
+    pub fn consume(&mut self) -> Option<SaveOutput> {
+        let output = std::mem::replace(self, SaveOutput::Invalid);
+        if let SaveOutput::Invalid = output {
+            return None;
+        }
+        Some(output)
     }
 }
 
@@ -281,7 +293,7 @@ pub enum EntityFilter {
 
 impl EntityFilter {
     /// Creates a new [`EntityFilter`] which allows all entities.
-    pub fn any() -> Self {
+    pub fn allow_all() -> Self {
         Self::Block(EntityHashSet::new())
     }
 
@@ -298,11 +310,11 @@ impl EntityFilter {
 
 impl Default for EntityFilter {
     fn default() -> Self {
-        Self::any()
+        Self::allow_all()
     }
 }
 
-#[doc(hidden)]
+/// Alias for a `'static` [`Write`] stream.
 pub trait SaveStream: Write
 where
     Self: 'static + Send + Sync,
@@ -316,6 +328,13 @@ impl<S: Write> SaveStream for S where S: 'static + Send + Sync {}
 pub struct Saved {
     /// The saved [`DynamicScene`] to be serialized.
     pub scene: DynamicScene,
+}
+
+impl Saved {
+    /// Iterates over all the saved entities.
+    pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.scene.entities.iter().map(|de| de.entity)
+    }
 }
 
 /// An [`Event`] triggered at the end of the save process.
@@ -361,30 +380,27 @@ pub fn save_on<E: SaveEvent>(trigger: SingleTrigger<E>, world: &mut World) {
 }
 
 fn save_world<E: SaveEvent>(mut event: E, world: &mut World) -> Result<Saved, SaveError> {
+    // Notify
+    event.before_save(world);
+
     // Filter
-    //let (input, output) = event.unpack();
     let entities: Vec<_> = world
         .query_filtered::<Entity, E::SaveFilter>()
         .iter(world)
-        .filter(|entity| event.filter_entity(*entity))
+        .filter(|entity| event.filter_entity(world.entity(*entity)))
         .collect();
 
     // Serialize
-    for entity in entities.iter() {
-        event.before_serialize(world.entity_mut(*entity));
-    }
+    event.before_serialize(world, &entities);
     let scene = DynamicSceneBuilder::from_world(world)
         .with_component_filter(event.component_filter())
         .with_resource_filter(event.resource_filter())
         .extract_resources()
         .extract_entities(entities.iter().copied())
         .build();
-    for entity in entities.iter() {
-        event.after_serialize(world.entity_mut(*entity));
-    }
 
     // Write
-    match event.output() {
+    let saved = match event.output() {
         SaveOutput::File(path) => {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -394,399 +410,27 @@ fn save_world<E: SaveEvent>(mut event: E, world: &mut World) -> Result<Saved, Sa
             let data = scene.serialize(&type_registry)?;
             std::fs::write(&path, data.as_bytes())?;
             debug!("saved into file: {path:?}");
-            Ok(Saved { scene })
+            Saved { scene }
         }
         SaveOutput::Stream(mut stream) => {
             let type_registry = world.resource::<AppTypeRegistry>().read();
             let data = scene.serialize(&type_registry)?;
             stream.write_all(data.as_bytes())?;
             debug!("saved into stream");
-            Ok(Saved { scene })
+            Saved { scene }
         }
         SaveOutput::Drop => {
-            debug!("save dropped");
-            Ok(Saved { scene })
+            debug!("saved data dropped");
+            Saved { scene }
         }
-    }
-}
+        SaveOutput::Invalid => {
+            panic!("SaveOutput is invalid");
+        }
+    };
 
-// TODO: REMOVE LEGACY API BELOW
-// VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+    event.after_save(world, &saved);
 
-/// A [`Plugin`] which configures [`SaveSystem`] in [`PreUpdate`] schedule.
-pub struct SavePlugin;
-
-impl Plugin for SavePlugin {
-    fn build(&self, app: &mut App) {
-        app.configure_sets(
-            PreUpdate,
-            (
-                SaveSystem::Save,
-                SaveSystem::PostSave.run_if(has_resource::<Saved>),
-            )
-                .chain(),
-        )
-        .add_systems(
-            PreUpdate,
-            remove_resource::<Saved>.in_set(SaveSystem::PostSave),
-        )
-        .add_single_observer(save_on::<SaveWorld>)
-        .add_single_observer(save_on::<SaveWorld<()>>);
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum SaveSystem {
-    /// Reserved for systems which serialize the world and process the output.
-    Save,
-    /// Runs after [`SaveSystem::Save`].
-    PostSave,
-}
-
-impl SystemSet for SaveSystem {
-    fn dyn_clone(&self) -> Box<dyn SystemSet> {
-        Box::new(self.clone())
-    }
-
-    fn as_dyn_eq(&self) -> &dyn bevy_ecs::label::DynEq {
-        self
-    }
-
-    fn dyn_hash(&self, mut state: &mut dyn std::hash::Hasher) {
-        let ty_id = std::any::TypeId::of::<Self>();
-        std::hash::Hash::hash(&ty_id, &mut state);
-        std::hash::Hash::hash(self, &mut state);
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub struct SavePipelineBuilder<F: QueryFilter> {
-    query: PhantomData<F>,
-    input: SaveInput,
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn save<F: QueryFilter>() -> SavePipelineBuilder<F> {
-    SavePipelineBuilder {
-        query: PhantomData,
-        input: Default::default(),
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn save_default() -> SavePipelineBuilder<With<Save>> {
-    save()
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn save_all() -> SavePipelineBuilder<()> {
-    save()
-}
-
-impl<F: QueryFilter> SavePipelineBuilder<F>
-where
-    F: 'static + Send + Sync,
-{
-    #[doc(hidden)]
-    pub fn include_resource<R: Resource>(mut self) -> Self {
-        self.input.resources = self.input.resources.allow::<R>();
-        self
-    }
-
-    #[doc(hidden)]
-    pub fn include_resource_by_id(mut self, type_id: TypeId) -> Self {
-        self.input.resources = self.input.resources.allow_by_id(type_id);
-        self
-    }
-    #[doc(hidden)]
-    pub fn exclude_component<T: Component>(mut self) -> Self {
-        self.input.components = self.input.components.deny::<T>();
-        self
-    }
-
-    #[doc(hidden)]
-    pub fn exclude_component_by_id(mut self, type_id: TypeId) -> Self {
-        self.input.components = self.input.components.deny_by_id(type_id);
-        self
-    }
-
-    #[doc(hidden)]
-    pub fn map_component<T: Component>(mut self, m: impl MapComponent<T>) -> Self {
-        self.input.mapper = self.input.mapper.map(m);
-        self
-    }
-
-    #[doc(hidden)]
-    pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
-        let source = p.as_save_event_source();
-        source
-            .pipe(
-                move |In(input): In<Option<SaveWorld<F>>>, world: &mut World| {
-                    let Some(mut event) = input else {
-                        return;
-                    };
-                    event.input = self.input.clone();
-                    world.trigger_single(event);
-                    p.clean(world);
-                },
-            )
-            .in_set(SaveSystem::Save)
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub struct DynamicSavePipelineBuilder<S: System<In = (), Out = SaveInput>> {
-    input_source: S,
-}
-
-impl<S: System<In = (), Out = SaveInput>> DynamicSavePipelineBuilder<S> {
-    #[deprecated]
-    #[doc(hidden)]
-    pub fn into(self, p: impl SavePipeline) -> ScheduleConfigs<ScheduleSystem> {
-        let source = p.as_save_event_source_with_input();
-        self.input_source
-            .pipe(source)
-            .pipe(
-                move |In(event): In<Option<SaveWorld<()>>>, world: &mut World| {
-                    let Some(event) = event else {
-                        return;
-                    };
-                    world.trigger_single(event);
-                    p.clean(world);
-                },
-            )
-            .in_set(SaveSystem::Save)
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub fn save_with<S: IntoSystem<(), SaveInput, M>, M>(
-    input_source: S,
-) -> DynamicSavePipelineBuilder<S::System> {
-    DynamicSavePipelineBuilder {
-        input_source: IntoSystem::into_system(input_source),
-    }
-}
-
-#[deprecated]
-#[doc(hidden)]
-pub trait SavePipeline: Pipeline {
-    fn as_save_event_source<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync;
-
-    fn as_save_event_source_with_input<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync;
-}
-
-impl SavePipeline for StaticFile {
-    fn as_save_event_source<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        let path = self.0.clone();
-        IntoSystem::into_system(move || Some(SaveWorld::<F>::into_file(&path)))
-    }
-
-    fn as_save_event_source_with_input<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        let path = self.0.clone();
-        IntoSystem::into_system(move |In(input): In<SaveInput>| {
-            Some(SaveWorld::<F> {
-                input,
-                ..SaveWorld::<F>::into_file(&path)
-            })
-        })
-    }
-}
-
-impl<S: GetStaticStream> SavePipeline for StaticStream<S>
-where
-    S::Stream: Write,
-{
-    fn as_save_event_source<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        IntoSystem::into_system(move || Some(SaveWorld::<F>::into_stream(S::stream())))
-    }
-
-    fn as_save_event_source_with_input<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        IntoSystem::into_system(move |In(input): In<SaveInput>| {
-            Some(SaveWorld::<F> {
-                input,
-                ..SaveWorld::<F>::into_stream(S::stream())
-            })
-        })
-    }
-}
-
-impl<R: GetFilePath + Resource> SavePipeline for FileFromResource<R> {
-    fn as_save_event_source<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        IntoSystem::into_system(move |res: Option<Res<R>>| {
-            res.map(|r| SaveWorld::<F>::into_file(r.path().to_owned()))
-        })
-    }
-
-    fn as_save_event_source_with_input<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        IntoSystem::into_system(move |In(input): In<SaveInput>, res: Option<Res<R>>| {
-            res.map(|r| SaveWorld::<F> {
-                input,
-                ..SaveWorld::<F>::into_file(r.path().to_owned())
-            })
-        })
-    }
-}
-
-impl<R: GetStream + Resource> SavePipeline for StreamFromResource<R>
-where
-    R::Stream: Write,
-{
-    fn as_save_event_source<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        IntoSystem::into_system(move |res: Option<Res<R>>| {
-            res.map(|r| SaveWorld::<F>::into_stream(r.stream()))
-        })
-    }
-
-    fn as_save_event_source_with_input<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        IntoSystem::into_system(move |In(input): In<SaveInput>, res: Option<Res<R>>| {
-            res.map(|r| SaveWorld::<F> {
-                input,
-                ..SaveWorld::<F>::into_stream(r.stream())
-            })
-        })
-    }
-}
-
-impl<E: GetFilePath + Event> SavePipeline for FileFromEvent<E> {
-    fn as_save_event_source<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        IntoSystem::into_system(move |mut events: EventReader<E>| {
-            let mut iter = events.read();
-            let event = iter.next()?;
-            if iter.next().is_some() {
-                warn!("multiple save request events received; only the first one is processed.");
-            }
-            Some(SaveWorld::<F>::into_file(event.path().to_owned()))
-        })
-    }
-
-    fn as_save_event_source_with_input<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        IntoSystem::into_system(
-            move |In(input): In<SaveInput>, mut events: EventReader<E>| {
-                let mut iter = events.read();
-                let event = iter.next()?;
-                if iter.next().is_some() {
-                    warn!(
-                        "multiple save request events received; only the first one is processed."
-                    );
-                }
-                Some(SaveWorld::<F> {
-                    input,
-                    ..SaveWorld::<F>::into_file(event.path().to_owned())
-                })
-            },
-        )
-    }
-}
-
-impl<E: GetStream + Event> SavePipeline for StreamFromEvent<E>
-where
-    E::Stream: Write,
-{
-    fn as_save_event_source<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = (), Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        IntoSystem::into_system(move |mut events: EventReader<E>| {
-            let mut iter = events.read();
-            let event = iter.next()?;
-            if iter.next().is_some() {
-                warn!("multiple save request events received; only the first one is processed.");
-            }
-            Some(SaveWorld::<F>::into_stream(event.stream()))
-        })
-    }
-
-    fn as_save_event_source_with_input<F: QueryFilter>(
-        &self,
-    ) -> impl System<In = In<SaveInput>, Out = Option<SaveWorld<F>>>
-    where
-        F: 'static + Send + Sync,
-    {
-        IntoSystem::into_system(
-            move |In(input): In<SaveInput>, mut events: EventReader<E>| {
-                let mut iter = events.read();
-                let event = iter.next()?;
-                if iter.next().is_some() {
-                    warn!(
-                        "multiple save request events received; only the first one is processed."
-                    );
-                }
-                Some(SaveWorld::<F> {
-                    input,
-                    ..SaveWorld::<F>::into_stream(event.stream())
-                })
-            },
-        )
-    }
+    Ok(saved)
 }
 
 #[cfg(test)]
@@ -939,315 +583,6 @@ mod tests {
         assert!(!data.contains("Bar"));
         assert!(app.world().entity(entity).contains::<Bar>());
         assert!(!app.world().entity(entity).contains::<Baz>());
-
-        remove_file(PATH).unwrap();
-    }
-}
-
-#[cfg(test)]
-mod tests_legacy {
-    use std::{fs::*, path::Path};
-
-    use bevy::prelude::*;
-
-    use super::*;
-    use crate::*;
-
-    #[derive(Component, Default, Reflect)]
-    #[reflect(Component)]
-    struct Dummy;
-
-    fn app() -> App {
-        let mut app = App::new();
-        app.add_plugins((MinimalPlugins, SavePlugin))
-            .register_type::<Dummy>();
-        app
-    }
-
-    #[test]
-    fn test_save_into_file() {
-        #[derive(Resource)]
-        struct EventTriggered;
-
-        pub const PATH: &str = "test_save_into_file_legacy.ron";
-        let mut app = app();
-        app.add_systems(PreUpdate, save_default().into(static_file(PATH)));
-
-        app.add_observer(|_: Trigger<OnSave>, mut commands: Commands| {
-            commands.insert_resource(EventTriggered);
-        });
-
-        app.world_mut().spawn((Dummy, Save));
-        app.update();
-
-        let data = read_to_string(PATH).unwrap();
-        let world = app.world();
-        assert!(data.contains("Dummy"));
-        assert!(!world.contains_resource::<Saved>());
-        assert!(world.contains_resource::<EventTriggered>());
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_save_into_stream() {
-        pub const PATH: &str = "test_save_to_stream_legacy.ron";
-
-        struct SaveStream;
-
-        impl GetStaticStream for SaveStream {
-            type Stream = File;
-
-            fn stream() -> Self::Stream {
-                File::create(PATH).unwrap()
-            }
-        }
-
-        let mut app = app();
-        app.add_systems(PreUpdate, save_default().into(static_stream(SaveStream)));
-
-        app.world_mut().spawn((Dummy, Save));
-        app.update();
-
-        let data = read_to_string(PATH).unwrap();
-        assert!(data.contains("Dummy"));
-        assert!(!app.world().contains_resource::<Saved>());
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_save_into_file_from_resource() {
-        pub const PATH: &str = "test_save_into_file_from_resource_legacy.ron";
-
-        #[derive(Resource)]
-        struct SaveRequest;
-
-        impl GetFilePath for SaveRequest {
-            fn path(&self) -> &Path {
-                PATH.as_ref()
-            }
-        }
-
-        let mut app = app();
-        app.add_systems(
-            PreUpdate,
-            save_default().into(file_from_resource::<SaveRequest>()),
-        );
-
-        app.world_mut().insert_resource(SaveRequest);
-        app.world_mut().spawn((Dummy, Save));
-        app.update();
-
-        let data = read_to_string(PATH).unwrap();
-        assert!(data.contains("Dummy"));
-        assert!(!app.world().contains_resource::<SaveRequest>());
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_save_into_stream_from_resource() {
-        pub const PATH: &str = "test_save_into_stream_from_resource_legacy.ron";
-
-        #[derive(Resource)]
-        struct SaveRequest(&'static str);
-
-        impl GetStream for SaveRequest {
-            type Stream = File;
-
-            fn stream(&self) -> Self::Stream {
-                File::create(self.0).unwrap()
-            }
-        }
-
-        let mut app = app();
-        app.add_systems(
-            PreUpdate,
-            save_default().into(stream_from_resource::<SaveRequest>()),
-        );
-
-        app.world_mut().insert_resource(SaveRequest(PATH));
-        app.world_mut().spawn((Dummy, Save));
-        app.update();
-
-        let data = read_to_string(PATH).unwrap();
-        assert!(data.contains("Dummy"));
-        assert!(!app.world().contains_resource::<Saved>());
-        assert!(!app.world().contains_resource::<SaveRequest>());
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_save_into_file_from_event() {
-        pub const PATH: &str = "test_save_into_file_from_event_legacy.ron";
-
-        #[derive(Event)]
-        struct SaveRequest;
-
-        impl GetFilePath for SaveRequest {
-            fn path(&self) -> &Path {
-                PATH.as_ref()
-            }
-        }
-
-        let mut app = app();
-        app.add_event::<SaveRequest>().add_systems(
-            PreUpdate,
-            save_default().into(file_from_event::<SaveRequest>()),
-        );
-
-        app.world_mut().send_event(SaveRequest);
-        app.world_mut().spawn((Dummy, Save));
-        app.update();
-
-        let data = read_to_string(PATH).unwrap();
-        assert!(data.contains("Dummy"));
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_save_into_stream_from_event() {
-        pub const PATH: &str = "test_save_into_stream_from_event_legacy.ron";
-
-        #[derive(Event)]
-        struct SaveRequest(&'static str);
-
-        impl GetStream for SaveRequest {
-            type Stream = File;
-
-            fn stream(&self) -> Self::Stream {
-                File::create(self.0).unwrap()
-            }
-        }
-
-        let mut app = app();
-        app.add_event::<SaveRequest>().add_systems(
-            PreUpdate,
-            save_default().into(stream_from_event::<SaveRequest>()),
-        );
-
-        app.world_mut().send_event(SaveRequest(PATH));
-        app.world_mut().spawn((Dummy, Save));
-        app.update();
-
-        let data = read_to_string(PATH).unwrap();
-        assert!(data.contains("Dummy"));
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_save_resource() {
-        pub const PATH: &str = "test_save_resource_legacy.ron";
-
-        #[derive(Resource, Default, Reflect)]
-        #[reflect(Resource)]
-        struct Dummy;
-
-        let mut app = app();
-        app.register_type::<Dummy>()
-            .insert_resource(Dummy)
-            .add_systems(
-                Update,
-                save_default()
-                    .include_resource::<Dummy>()
-                    .into(static_file(PATH)),
-            );
-
-        app.update();
-
-        let data = read_to_string(PATH).unwrap();
-        assert!(data.contains("Dummy"));
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_save_without_component() {
-        pub const PATH: &str = "test_save_without_component_legacy.ron";
-
-        #[derive(Component, Default, Reflect)]
-        #[reflect(Component)]
-        struct Foo;
-
-        let mut app = app();
-        app.add_systems(
-            PreUpdate,
-            save_default()
-                .exclude_component::<Foo>()
-                .into(static_file(PATH)),
-        );
-
-        app.world_mut().spawn((Dummy, Foo, Save));
-        app.update();
-
-        let data = read_to_string(PATH).unwrap();
-        assert!(data.contains("Dummy"));
-        assert!(!data.contains("Foo"));
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_save_without_component_dynamic() {
-        pub const PATH: &str = "test_save_without_component_dynamic_legacy.ron";
-
-        #[derive(Component, Default, Reflect)]
-        #[reflect(Component)]
-        struct Foo;
-
-        fn deny_foo(entities: Query<Entity, With<Dummy>>) -> SaveInput {
-            SaveInput {
-                entities: EntityFilter::allow(&entities),
-                components: SceneFilter::default().deny::<Foo>(),
-                ..Default::default()
-            }
-        }
-
-        let mut app = app();
-        app.add_systems(PreUpdate, save_with(deny_foo).into(static_file(PATH)));
-
-        app.world_mut().spawn((Dummy, Foo));
-        app.update();
-
-        let data = read_to_string(PATH).unwrap();
-        assert!(data.contains("Dummy"));
-        assert!(!data.contains("Foo"));
-
-        remove_file(PATH).unwrap();
-    }
-
-    #[test]
-    fn test_save_map_component() {
-        pub const PATH: &str = "test_save_map_component_legacy.ron";
-
-        #[derive(Component, Default)]
-        struct Foo(#[allow(dead_code)] u32); // Not serializable
-
-        #[derive(Component, Default, Reflect)]
-        #[reflect(Component)]
-        struct Bar(u32); // Serializable
-
-        let mut app = app();
-        app.register_type::<Bar>().add_systems(
-            PreUpdate,
-            save_default()
-                .map_component::<Foo>(|Foo(i): &Foo| Bar(*i))
-                .into(static_file(PATH)),
-        );
-
-        let entity = app.world_mut().spawn((Foo(12), Save)).id();
-        app.update();
-
-        let data = read_to_string(PATH).unwrap();
-        assert!(data.contains("Bar"));
-        assert!(data.contains("(12)"));
-        assert!(!data.contains("Foo"));
-        assert!(app.world().entity(entity).contains::<Foo>());
-        assert!(!app.world().entity(entity).contains::<Bar>());
 
         remove_file(PATH).unwrap();
     }
