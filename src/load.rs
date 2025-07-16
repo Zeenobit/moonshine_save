@@ -297,12 +297,12 @@ fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, L
         .iter(world)
         .collect::<Vec<_>>();
     for entity in entities {
-        event.before_unload(world.entity_mut(entity));
+        if let Ok(entity) = world.get_entity_mut(entity) {
+            event.before_unload(entity);
+        }
+
         if let Ok(entity) = world.get_entity_mut(entity) {
             entity.despawn();
-        } else {
-            warn!("entity {entity:?} was despawned before unload");
-            continue;
         }
     }
 
