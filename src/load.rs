@@ -96,21 +96,21 @@ pub trait LoadEvent: SingleEvent {
     fn input(&mut self) -> LoadInput;
 
     /// Called once before the load process starts.
-    fn before_load(&mut self, world: &mut World) {
-        let _ = world;
-    }
+    ///
+    /// This is useful if you want to modify the world just before loading.
+    fn before_load(&mut self, _world: &mut World) {}
 
-    /// Called for all entities matching the [`UnloadFilter`](LoadEvent::UnloadFilter).
-    fn before_unload(&mut self, world: &mut World, entities: &[Entity]) {
-        let _ = world;
-        let _ = entities;
-    }
+    /// Called once before unloading entities.
+    ///
+    /// All given entities will be despawned after this call.
+    /// This is useful if you want to update the world state as a result of unloading these entities.
+    fn before_unload(&mut self, _world: &mut World, _entities: &[Entity]) {}
 
     /// Called for all entities after they have been loaded.
-    fn after_load(&mut self, world: &mut World, loaded: &Loaded) {
-        let _ = world;
-        let _ = loaded;
-    }
+    ///
+    /// This is useful to undo any modifications done before loading.
+    /// You also have access to [`Loaded`] here for any additional post-processing before [`OnLoad`] is triggered.
+    fn after_load(&mut self, _world: &mut World, _loaded: &Loaded) {}
 }
 
 /// A generic [`LoadEvent`] which loads the world from a file or stream.

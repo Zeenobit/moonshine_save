@@ -47,27 +47,19 @@ pub trait SaveEvent: SingleEvent {
     type SaveFilter: QueryFilter;
 
     /// Return `true` if the given [`Entity`] should be saved.
-    fn filter_entity(&self, entity: EntityRef) -> bool {
-        let _ = entity;
+    fn filter_entity(&self, _entity: EntityRef) -> bool {
         true
     }
 
     /// Called once before the save process starts.
-    fn before_save(&mut self, world: &mut World) {
-        let _ = world;
-    }
+    ///
+    /// This is useful if you want to modify the world just before saving.
+    fn before_save(&mut self, _world: &mut World) {}
 
-    /// Called for all saved entities before serialization.
-    fn before_serialize(&mut self, world: &mut World, entities: &[Entity]) {
-        let _ = world;
-        let _ = entities;
-    }
-
-    /// Called for all saved entities after serialization.
-    fn after_save(&mut self, world: &mut World, saved: &Saved) {
-        let _ = world;
-        let _ = saved;
-    }
+    /// Called once before serialization.
+    ///
+    /// This is useful to undo any modifications done before saving.
+    fn before_serialize(&mut self, _world: &mut World, _entities: &[Entity]) {}
 
     /// Returns a [`SceneFilter`] for selecting which components should be saved.
     fn component_filter(&mut self) -> SceneFilter {
@@ -78,6 +70,11 @@ pub trait SaveEvent: SingleEvent {
     fn resource_filter(&mut self) -> SceneFilter {
         SceneFilter::deny_all()
     }
+
+    /// Called once after serialization.
+    ///
+    /// This is useful if you would like to do any post-processing of the [`Saved`] data *before* [`OnSave`] is triggered.
+    fn after_save(&mut self, _world: &mut World, _saved: &Saved) {}
 
     /// Returns the [`SaveOutput`] of the save process.
     fn output(&mut self) -> SaveOutput;
