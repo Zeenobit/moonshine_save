@@ -369,6 +369,7 @@ fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, L
     // Load
     let mut entity_map = EntityHashMap::default();
     scene.write_to_world(world, &mut entity_map)?;
+    debug!("loaded {} entities", entity_map.len());
 
     let result = Ok(Loaded { entity_map });
     event.after_load(world, &result);
