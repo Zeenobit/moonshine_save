@@ -74,7 +74,7 @@ pub trait SaveEvent: SingleEvent {
     /// Called once after serialization.
     ///
     /// This is useful if you would like to do any post-processing of the [`Saved`] data *before* [`OnSave`] is triggered.
-    fn after_save(&mut self, _world: &mut World, _saved: &Saved) {}
+    fn after_save(&mut self, _world: &mut World, _result: &Result<Saved, SaveError>) {}
 
     /// Returns the [`SaveOutput`] of the save process.
     fn output(&mut self) -> SaveOutput;
@@ -221,7 +221,11 @@ where
         }
     }
 
-    fn after_save(&mut self, world: &mut World, saved: &Saved) {
+    fn after_save(&mut self, world: &mut World, result: &Result<Saved, SaveError>) {
+        let Ok(saved) = result else {
+            return;
+        };
+
         for entity in saved.entities() {
             self.mapper.undo(world.entity_mut(entity));
         }
@@ -426,9 +430,9 @@ fn save_world<E: SaveEvent>(mut event: E, world: &mut World) -> Result<Saved, Sa
         }
     };
 
-    event.after_save(world, &saved);
-
-    Ok(saved)
+    let result = Ok(saved);
+    event.after_save(world, &result);
+    result
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 
 use bevy_scene::DynamicScene;
+use moonshine_util::expect::{expect_deferred, ExpectDeferred};
 use serde::de::DeserializeSeed;
 
 use bevy_ecs::entity::EntityHashMap;
@@ -110,7 +111,7 @@ pub trait LoadEvent: SingleEvent {
     ///
     /// This is useful to undo any modifications done before loading.
     /// You also have access to [`Loaded`] here for any additional post-processing before [`OnLoad`] is triggered.
-    fn after_load(&mut self, _world: &mut World, _loaded: &Loaded) {}
+    fn after_load(&mut self, _world: &mut World, _result: &Result<Loaded, LoadError>) {}
 }
 
 /// A generic [`LoadEvent`] which loads the world from a file or stream.
@@ -188,14 +189,22 @@ where
         self.input.consume().unwrap()
     }
 
-    fn after_load(&mut self, world: &mut World, loaded: &Loaded) {
-        for entity in loaded.entities() {
-            let Ok(entity) = world.get_entity_mut(entity) else {
-                // Some entities may be invalid during load. See `unsaved.rs` test.
-                continue;
-            };
-            self.mapper.replace(entity);
+    fn before_load(&mut self, world: &mut World) {
+        world.insert_resource(ExpectDeferred::default());
+    }
+
+    fn after_load(&mut self, world: &mut World, result: &Result<Loaded, LoadError>) {
+        if let Ok(loaded) = result {
+            for entity in loaded.entities() {
+                let Ok(entity) = world.get_entity_mut(entity) else {
+                    // Some entities may be invalid during load. See `unsaved.rs` test.
+                    continue;
+                };
+                self.mapper.replace(entity);
+            }
         }
+
+        expect_deferred(world);
     }
 }
 
@@ -360,10 +369,10 @@ fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, L
     // Load
     let mut entity_map = EntityHashMap::default();
     scene.write_to_world(world, &mut entity_map)?;
-    let loaded = Loaded { entity_map };
-    event.after_load(world, &loaded);
 
-    Ok(loaded)
+    let result = Ok(Loaded { entity_map });
+    event.after_load(world, &result);
+    result
 }
 
 #[cfg(test)]
