@@ -3,6 +3,7 @@ use std::fs;
 use bevy::prelude::*;
 use bevy_ecs::system::RunSystemOnce;
 use moonshine_save::prelude::*;
+use moonshine_util::prelude::*;
 
 const SAVE_PATH: &str = "test_mapper.ron";
 
@@ -36,7 +37,7 @@ struct SerializedFoo(u32);
 #[require(Save)]
 struct Bar;
 
-trait Secret: 'static + Send + Sync {
+trait Secret: Static {
     fn secret(&self) -> u32;
 }
 

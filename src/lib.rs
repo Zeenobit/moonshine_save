@@ -4,6 +4,7 @@
 use std::marker::PhantomData;
 
 use bevy_ecs::prelude::*;
+use moonshine_util::Static;
 
 /// Types, traits, and functions related to loading.
 pub mod load;
@@ -89,7 +90,7 @@ impl SceneMapper {
     }
 }
 
-trait ComponentMapper: 'static + Send + Sync {
+trait ComponentMapper: Static {
     fn apply(&mut self, entity: &mut EntityWorldMut);
 
     fn replace(&mut self, entity: &mut EntityWorldMut);

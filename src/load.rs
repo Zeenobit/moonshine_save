@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use bevy_scene::DynamicScene;
 use moonshine_util::expect::{expect_deferred, ExpectDeferred};
+use moonshine_util::Static;
 use serde::de::DeserializeSeed;
 
 use bevy_ecs::entity::EntityHashMap;
@@ -177,11 +178,11 @@ impl LoadWorld {
     }
 }
 
-impl<U: QueryFilter> SingleEvent for LoadWorld<U> where U: 'static + Send + Sync {}
+impl<U: QueryFilter> SingleEvent for LoadWorld<U> where U: Static {}
 
 impl<U: QueryFilter> LoadEvent for LoadWorld<U>
 where
-    U: 'static + Send + Sync,
+    U: Static,
 {
     type UnloadFilter = U;
 
@@ -246,11 +247,11 @@ impl LoadInput {
 /// Alias for a `'static` [`Read`] stream.
 pub trait LoadStream: Read
 where
-    Self: 'static + Send + Sync,
+    Self: Static,
 {
 }
 
-impl<S: Read> LoadStream for S where S: 'static + Send + Sync {}
+impl<S: Read> LoadStream for S where S: Static {}
 
 /// Contains the loaded entity map.
 #[derive(Resource)]

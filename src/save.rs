@@ -10,6 +10,7 @@ use bevy_log::prelude::*;
 use bevy_scene::{ron, DynamicScene, DynamicSceneBuilder, SceneFilter};
 
 use moonshine_util::event::{SingleEvent, SingleTrigger, TriggerSingle};
+use moonshine_util::Static;
 
 use crate::{MapComponent, SceneMapper};
 
@@ -200,11 +201,11 @@ impl SaveWorld<()> {
     }
 }
 
-impl<F: QueryFilter> SingleEvent for SaveWorld<F> where F: 'static + Send + Sync {}
+impl<F: QueryFilter> SingleEvent for SaveWorld<F> where F: Static {}
 
 impl<F: QueryFilter> SaveEvent for SaveWorld<F>
 where
-    F: 'static + Send + Sync,
+    F: Static,
 {
     type SaveFilter = F;
 
@@ -319,11 +320,11 @@ impl Default for EntityFilter {
 /// Alias for a `'static` [`Write`] stream.
 pub trait SaveStream: Write
 where
-    Self: 'static + Send + Sync,
+    Self: Static,
 {
 }
 
-impl<S: Write> SaveStream for S where S: 'static + Send + Sync {}
+impl<S: Write> SaveStream for S where S: Static {}
 
 /// Contains the saved [`World`] data as a [`DynamicScene`].
 #[derive(Resource)] // TODO: Should be removed after migration
