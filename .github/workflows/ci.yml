@@ -28,7 +28,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}  
       - name: Install alsa and udev
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev
       - name: Run cargo clippy
         run: cargo clippy --tests --examples
 
@@ -64,7 +64,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}  
       - name: Install alsa and udev
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev
       - name: Run cargo doc
         run: cargo doc --no-deps --all-features
 
@@ -82,7 +82,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}  
       - name: Install alsa and udev
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev
       - name: Run cargo test
         run: cargo test --all-features --features bevy/x11 
       - name: Run doc tests
