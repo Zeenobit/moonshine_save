@@ -12,6 +12,7 @@ repository = "https://github.com/Zeenobit/moonshine_save"
 
 [dependencies]
 serde = "1"
+thiserror = "2"
 bevy_app = "0.17"
 bevy_ecs = "0.17"
 bevy_log = "0.17"

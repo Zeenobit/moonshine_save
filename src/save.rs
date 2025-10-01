@@ -11,6 +11,7 @@ use bevy_scene::{ron, DynamicScene, DynamicSceneBuilder, SceneFilter};
 
 use moonshine_util::event::{OnSingle, SingleEvent, TriggerSingle};
 use moonshine_util::Static;
+use thiserror::Error;
 
 use crate::{MapComponent, SceneMapper};
 
@@ -75,7 +76,7 @@ pub trait SaveEvent: SingleEvent {
     /// Called once after serialization.
     ///
     /// This is useful if you would like to do any post-processing of the [`Saved`] data *before* [`OnSave`] is triggered.
-    fn after_save(&mut self, _world: &mut World, _result: &Result<SavedWorld, SaveError>) {}
+    fn after_save(&mut self, _world: &mut World, _result: &SaveResult) {}
 
     /// Returns the [`SaveOutput`] of the save process.
     fn output(&mut self) -> SaveOutput;
@@ -222,7 +223,7 @@ where
         }
     }
 
-    fn after_save(&mut self, world: &mut World, result: &Result<SavedWorld, SaveError>) {
+    fn after_save(&mut self, world: &mut World, result: &SaveResult) {
         let Ok(saved) = result else {
             return;
         };
@@ -326,36 +327,34 @@ where
 
 impl<S: Write> SaveStream for S where S: Static {}
 
-/// Contains the saved [`World`] data as a [`DynamicScene`].
-#[derive(Resource)] // TODO: Should be removed after migration
-pub struct SavedWorld {
+/// An [`Event`] triggered at the end of the save process.
+///
+/// This event contains the saved [`World`] data as a [`DynamicScene`].
+#[derive(Event)]
+pub struct Saved {
     /// The saved [`DynamicScene`] to be serialized.
     pub scene: DynamicScene,
 }
 
-impl SavedWorld {
+impl Saved {
     /// Iterates over all the saved entities.
     pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.scene.entities.iter().map(|de| de.entity)
     }
 }
 
-/// An [`Event`] triggered at the end of the save process.
-///
-/// This event contains the [`SavedWorld`] data for further processing.
-#[derive(Event)]
-pub struct Saved(pub Result<SavedWorld, SaveError>);
-
 #[doc(hidden)]
 #[deprecated(since = "0.5.2", note = "use `Saved` instead")]
 pub type OnSave = Saved;
 
 /// An error that may occur during the save process.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum SaveError {
     /// An error occurred while serializing the scene.
+    #[error("Failed to serialize world: {0}")]
     Ron(ron::Error),
     /// An error occurred while writing into [`SaveOutput`].
+    #[error("Failed to write world: {0}")]
     Io(io::Error),
 }
 
@@ -371,22 +370,22 @@ impl From<io::Error> for SaveError {
     }
 }
 
+/// [`Result`] of a [`SaveEvent`].
+pub type SaveResult = Result<Saved, SaveError>;
+
 /// An [`Observer`] which saved the world when a [`SaveWorld`] event is triggered.
-pub fn save_on_default_event(trigger: OnSingle<SaveWorld>, world: &mut World) {
-    save_on(trigger, world);
+pub fn save_on_default_event(event: OnSingle<SaveWorld>, commands: Commands) {
+    save_on(event, commands);
 }
 
 /// An [`Observer`] which saved the world when the given [`SaveEvent`] is triggered.
-pub fn save_on<E: SaveEvent>(trigger: OnSingle<E>, world: &mut World) {
-    let event = trigger.event().consume().unwrap();
-    let result = save_world(event, world);
-    if let Err(why) = &result {
-        debug!("save failed: {why:?}");
-    }
-    world.trigger(Saved(result));
+pub fn save_on<E: SaveEvent>(event: OnSingle<E>, mut commands: Commands) {
+    commands.queue_handled(SaveCommand(event.consume().unwrap()), |err, ctx| {
+        error!("save failed: {err:?} ({ctx})");
+    });
 }
 
-fn save_world<E: SaveEvent>(mut event: E, world: &mut World) -> Result<SavedWorld, SaveError> {
+fn save_world<E: SaveEvent>(mut event: E, world: &mut World) -> SaveResult {
     // Notify
     event.before_save(world);
 
@@ -417,18 +416,18 @@ fn save_world<E: SaveEvent>(mut event: E, world: &mut World) -> Result<SavedWorl
             let data = scene.serialize(&type_registry)?;
             std::fs::write(&path, data.as_bytes())?;
             debug!("saved into file: {path:?}");
-            SavedWorld { scene }
+            Saved { scene }
         }
         SaveOutput::Stream(mut stream) => {
             let type_registry = world.resource::<AppTypeRegistry>().read();
             let data = scene.serialize(&type_registry)?;
             stream.write_all(data.as_bytes())?;
             debug!("saved into stream");
-            SavedWorld { scene }
+            Saved { scene }
         }
         SaveOutput::Drop => {
             debug!("saved data dropped");
-            SavedWorld { scene }
+            Saved { scene }
         }
         SaveOutput::Invalid => {
             panic!("SaveOutput is invalid");
@@ -438,6 +437,16 @@ fn save_world<E: SaveEvent>(mut event: E, world: &mut World) -> Result<SavedWorl
     let result = Ok(saved);
     event.after_save(world, &result);
     result
+}
+
+struct SaveCommand<E>(E);
+
+impl<E: SaveEvent> Command<Result<(), SaveError>> for SaveCommand<E> {
+    fn apply(self, world: &mut World) -> Result<(), SaveError> {
+        let saved = save_world(self.0, world)?;
+        world.trigger(saved);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -481,7 +490,6 @@ mod tests {
         let data = read_to_string(PATH).unwrap();
         let world = app.world();
         assert!(data.contains("Foo"));
-        assert!(!world.contains_resource::<SavedWorld>());
         assert!(world.contains_resource::<EventTriggered>());
 
         remove_file(PATH).unwrap();
@@ -501,7 +509,6 @@ mod tests {
 
         let data = read_to_string(PATH).unwrap();
         assert!(data.contains("Foo"));
-        assert!(!app.world().contains_resource::<SavedWorld>());
 
         remove_file(PATH).unwrap();
     }

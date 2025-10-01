@@ -14,6 +14,7 @@ use bevy_log::prelude::*;
 use bevy_scene::{ron, serde::SceneDeserializer, SceneSpawnError};
 
 use moonshine_util::event::{OnSingle, SingleEvent, TriggerSingle};
+use thiserror::Error;
 
 use crate::save::Save;
 use crate::{MapComponent, SceneMapper};
@@ -112,7 +113,7 @@ pub trait LoadEvent: SingleEvent {
     ///
     /// This is useful to undo any modifications done before loading.
     /// You also have access to [`Loaded`] here for any additional post-processing before [`OnLoad`] is triggered.
-    fn after_load(&mut self, _world: &mut World, _result: &Result<LoadedWorld, LoadError>) {}
+    fn after_load(&mut self, _world: &mut World, _result: &LoadResult) {}
 }
 
 /// A generic [`LoadEvent`] which loads the world from a file or stream.
@@ -191,10 +192,10 @@ where
     }
 
     fn before_load(&mut self, world: &mut World) {
-        world.insert_resource(ExpectDeferred::default());
+        world.insert_resource(ExpectDeferred);
     }
 
-    fn after_load(&mut self, world: &mut World, result: &Result<LoadedWorld, LoadError>) {
+    fn after_load(&mut self, world: &mut World, result: &LoadResult) {
         if let Ok(loaded) = result {
             for entity in loaded.entities() {
                 let Ok(entity) = world.get_entity_mut(entity) else {
@@ -253,14 +254,16 @@ where
 
 impl<S: Read> LoadStream for S where S: Static {}
 
-/// Contains the loaded entity map.
-#[derive(Resource)]
-pub struct LoadedWorld {
+/// An [`Event`] triggered at the end of a successful load process.
+///
+/// This event contains the loaded entity map.
+#[derive(Event)]
+pub struct Loaded {
     /// The map of all loaded entities and their new entity IDs.
     pub entity_map: EntityHashMap<Entity>,
 }
 
-impl LoadedWorld {
+impl Loaded {
     /// Iterates over all loaded entities.
     ///
     /// Note that not all of these entities may be valid. This would indicate an error with save data.
@@ -270,26 +273,21 @@ impl LoadedWorld {
     }
 }
 
-/// An [`Event`] triggered at the end of the load process.
-///
-/// This event contains the [`LoadedWorld`] data for further processing.
-#[derive(Event)]
-pub struct Loaded(pub Result<LoadedWorld, LoadError>);
-
 #[doc(hidden)]
 #[deprecated(since = "0.5.2", note = "use `Loaded` instead")]
 pub type OnLoad = Loaded;
 
 /// An error which indicates a failure during the load process.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum LoadError {
-    /// Indicates a failure to access the file.
+    /// Indicates a failure to access the saved data.
+    #[error("Failed to read world: {0}")]
     Io(io::Error),
-    /// Indicates a RON syntax error.
-    De(ron::de::SpannedError),
     /// Indicates a deserialization error.
+    #[error("Failed to deserialize world: {0}")]
     Ron(ron::Error),
     /// Indicates a failure to reconstruct the world from the loaded data.
+    #[error("Failed to spawn scene: {0}")]
     Scene(SceneSpawnError),
 }
 
@@ -301,7 +299,7 @@ impl From<io::Error> for LoadError {
 
 impl From<ron::de::SpannedError> for LoadError {
     fn from(e: ron::de::SpannedError) -> Self {
-        Self::De(e)
+        Self::Ron(e.into())
     }
 }
 
@@ -317,22 +315,22 @@ impl From<SceneSpawnError> for LoadError {
     }
 }
 
+/// [`Result`] of a [`LoadEvent`].
+pub type LoadResult = Result<Loaded, LoadError>;
+
 /// An [`Observer`] which loads the world when a [`LoadWorld`] event is triggered.
-pub fn load_on_default_event(trigger: OnSingle<LoadWorld>, world: &mut World) {
-    load_on(trigger, world);
+pub fn load_on_default_event(event: OnSingle<LoadWorld>, commands: Commands) {
+    load_on(event, commands);
 }
 
 /// An [`Observer`] which loads the world when the given [`LoadEvent`] is triggered.
-pub fn load_on<E: LoadEvent>(trigger: OnSingle<E>, world: &mut World) {
-    let event = trigger.event().consume().unwrap();
-    let result = load_world(event, world);
-    if let Err(why) = &result {
-        debug!("load failed: {why:?}");
-    }
-    world.trigger(Loaded(result));
+pub fn load_on<E: LoadEvent>(event: OnSingle<E>, mut commands: Commands) {
+    commands.queue_handled(LoadCommand(event.consume().unwrap()), |err, ctx| {
+        error!("load failed: {err:?} ({ctx})");
+    });
 }
 
-fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<LoadedWorld, LoadError> {
+fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> LoadResult {
     // Notify
     event.before_load(world);
 
@@ -343,7 +341,7 @@ fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<LoadedWor
             let mut deserializer = ron::Deserializer::from_bytes(&bytes)?;
             let type_registry = &world.resource::<AppTypeRegistry>().read();
             let scene_deserializer = SceneDeserializer { type_registry };
-            scene_deserializer.deserialize(&mut deserializer)?
+            scene_deserializer.deserialize(&mut deserializer).unwrap()
         }
         LoadInput::Stream(mut stream) => {
             let mut bytes = Vec::new();
@@ -376,9 +374,19 @@ fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<LoadedWor
     scene.write_to_world(world, &mut entity_map)?;
     debug!("loaded {} entities", entity_map.len());
 
-    let result = Ok(LoadedWorld { entity_map });
+    let result = Ok(Loaded { entity_map });
     event.after_load(world, &result);
     result
+}
+
+struct LoadCommand<E>(E);
+
+impl<E: LoadEvent> Command<Result<(), LoadError>> for LoadCommand<E> {
+    fn apply(self, world: &mut World) -> Result<(), LoadError> {
+        let loaded = load_world(self.0, world)?;
+        world.trigger(loaded);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -393,7 +401,7 @@ mod tests {
     pub const DATA: &str = "(
         resources: {},
         entities: {
-            4294967296: (
+            4294967293: (
                 components: {
                     \"moonshine_save::load::tests::Foo\": (),
                 },
@@ -433,7 +441,6 @@ mod tests {
         });
 
         let world = app.world_mut();
-        assert!(!world.contains_resource::<LoadedWorld>());
         assert!(world.contains_resource::<EventTriggered>());
         assert!(world
             .query_filtered::<(), With<Foo>>()

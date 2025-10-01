@@ -281,7 +281,7 @@ Here is a simple example of how to "upgrade" a component from saved data:
 ```rust
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
-use bevy::ecs::component::HookContext;
+use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 
 #[derive(Component, Default, Reflect)]
@@ -310,7 +310,7 @@ You can also create specialized validator components to ensure validity:
 ```rust
 use bevy::prelude::*;
 use moonshine_save::prelude::*;
-use bevy::ecs::component::HookContext;
+use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 
 #[derive(Component, Default, Reflect)]

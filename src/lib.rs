@@ -16,12 +16,12 @@ pub mod save;
 pub mod prelude {
     pub use crate::load::{
         load_on, load_on_default_event, LoadError, LoadEvent, LoadInput, LoadWorld, Loaded,
-        LoadedWorld, TriggerLoad, Unload,
+        TriggerLoad, Unload,
     };
 
     pub use crate::save::{
         save_on, save_on_default_event, Save, SaveError, SaveEvent, SaveOutput, SaveWorld, Saved,
-        SavedWorld, TriggerSave,
+        TriggerSave,
     };
 
     pub use bevy_ecs::{
