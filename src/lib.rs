@@ -15,13 +15,13 @@ pub mod save;
 /// Common elements for saving/loading world state.
 pub mod prelude {
     pub use crate::load::{
-        load_on, load_on_default_event, LoadError, LoadEvent, LoadInput, LoadWorld, Loaded, OnLoad,
-        TriggerLoad, Unload,
+        load_on, load_on_default_event, LoadError, LoadEvent, LoadInput, LoadWorld, Loaded,
+        LoadedWorld, TriggerLoad, Unload,
     };
 
     pub use crate::save::{
-        save_on, save_on_default_event, OnSave, Save, SaveError, SaveEvent, SaveOutput, SaveWorld,
-        Saved, TriggerSave,
+        save_on, save_on_default_event, Save, SaveError, SaveEvent, SaveOutput, SaveWorld, Saved,
+        SavedWorld, TriggerSave,
     };
 
     pub use bevy_ecs::{

@@ -13,7 +13,7 @@ fn main() {
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             title: "Army".to_string(),
-            resolution: (700., 200.).into(),
+            resolution: (700, 200).into(),
             ..default()
         }),
         ..default()

@@ -330,31 +330,6 @@ impl ValidNew {
 }
 ```
 
-## Changes
-
-### Version 0.5
-
-- New event-driven interface for saving and loading
-- Old interface is deprecated, but still available as a wrapper around the new system
-- **Migration from 0.4.\***
-    - Remove all save/load pipelines (`save`, `save_default`, `save_all`, `load`)
-    - Remove `SavePlugin` and `LoadPlugin`
-    - Refactor save/load execution logic to trigger [`SaveWorld`] and [`LoadWorld`] events
-        - You can implement [`SaveEvent`] and [`LoadEvent`] to customize the event data
-        - Save/Load parameters are now passed as event data instead of using pipelines
-        - [`SaveWorld`] and [`LoadWorld`] events provide the methods to filter/map the save data
-        - Use `trigger_save` and `trigger_load` to trigger these events
-    - Add save/load observers:
-        - [`save_on_default_event`] and [`load_on_default_event`] are equivalent to the old `save_default` and `load` pipelines
-        - Use [`save_on`] and [`load_on`] for custom events/filters
-    - If you use the default save pipeline, make sure the [`Save`] component is added as a required component.
-        - Prior to this change, the load pipeline would (incorrectly) add the `Save` component to all saved entities.
-        - Now, the load pipeline does not manage this at all.
-        - Adding [`Save`] to at least one of the saved components on a saved entity ensures it is inserted automatically on load.
-    - Any post-processing in `PostSave` and `PostLoad` should be refactored into observers
-        - Handle `Trigger<OnSave>` and `Trigger<OnLoad>` to access the `Saved` and `Loaded` data, or handle any errors
-    - See examples and tests for more details
-
 ## Support
 
 Please [post an issue](https://github.com/Zeenobit/moonshine_save/issues/new) for any bugs, questions, or suggestions.

@@ -13,7 +13,7 @@ use bevy_ecs::query::QueryFilter;
 use bevy_log::prelude::*;
 use bevy_scene::{ron, serde::SceneDeserializer, SceneSpawnError};
 
-use moonshine_util::event::{SingleEvent, SingleTrigger, TriggerSingle};
+use moonshine_util::event::{OnSingle, SingleEvent, TriggerSingle};
 
 use crate::save::Save;
 use crate::{MapComponent, SceneMapper};
@@ -112,7 +112,7 @@ pub trait LoadEvent: SingleEvent {
     ///
     /// This is useful to undo any modifications done before loading.
     /// You also have access to [`Loaded`] here for any additional post-processing before [`OnLoad`] is triggered.
-    fn after_load(&mut self, _world: &mut World, _result: &Result<Loaded, LoadError>) {}
+    fn after_load(&mut self, _world: &mut World, _result: &Result<LoadedWorld, LoadError>) {}
 }
 
 /// A generic [`LoadEvent`] which loads the world from a file or stream.
@@ -194,7 +194,7 @@ where
         world.insert_resource(ExpectDeferred::default());
     }
 
-    fn after_load(&mut self, world: &mut World, result: &Result<Loaded, LoadError>) {
+    fn after_load(&mut self, world: &mut World, result: &Result<LoadedWorld, LoadError>) {
         if let Ok(loaded) = result {
             for entity in loaded.entities() {
                 let Ok(entity) = world.get_entity_mut(entity) else {
@@ -255,12 +255,12 @@ impl<S: Read> LoadStream for S where S: Static {}
 
 /// Contains the loaded entity map.
 #[derive(Resource)]
-pub struct Loaded {
+pub struct LoadedWorld {
     /// The map of all loaded entities and their new entity IDs.
     pub entity_map: EntityHashMap<Entity>,
 }
 
-impl Loaded {
+impl LoadedWorld {
     /// Iterates over all loaded entities.
     ///
     /// Note that not all of these entities may be valid. This would indicate an error with save data.
@@ -272,9 +272,13 @@ impl Loaded {
 
 /// An [`Event`] triggered at the end of the load process.
 ///
-/// This event contains the [`Loaded`] data for further processing.
+/// This event contains the [`LoadedWorld`] data for further processing.
 #[derive(Event)]
-pub struct OnLoad(pub Result<Loaded, LoadError>);
+pub struct Loaded(pub Result<LoadedWorld, LoadError>);
+
+#[doc(hidden)]
+#[deprecated(since = "0.5.2", note = "use `Loaded` instead")]
+pub type OnLoad = Loaded;
 
 /// An error which indicates a failure during the load process.
 #[derive(Debug)]
@@ -314,21 +318,21 @@ impl From<SceneSpawnError> for LoadError {
 }
 
 /// An [`Observer`] which loads the world when a [`LoadWorld`] event is triggered.
-pub fn load_on_default_event(trigger: SingleTrigger<LoadWorld>, world: &mut World) {
+pub fn load_on_default_event(trigger: OnSingle<LoadWorld>, world: &mut World) {
     load_on(trigger, world);
 }
 
 /// An [`Observer`] which loads the world when the given [`LoadEvent`] is triggered.
-pub fn load_on<E: LoadEvent>(trigger: SingleTrigger<E>, world: &mut World) {
+pub fn load_on<E: LoadEvent>(trigger: OnSingle<E>, world: &mut World) {
     let event = trigger.event().consume().unwrap();
     let result = load_world(event, world);
     if let Err(why) = &result {
         debug!("load failed: {why:?}");
     }
-    world.trigger(OnLoad(result));
+    world.trigger(Loaded(result));
 }
 
-fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, LoadError> {
+fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<LoadedWorld, LoadError> {
     // Notify
     event.before_load(world);
 
@@ -372,7 +376,7 @@ fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> Result<Loaded, L
     scene.write_to_world(world, &mut entity_map)?;
     debug!("loaded {} entities", entity_map.len());
 
-    let result = Ok(Loaded { entity_map });
+    let result = Ok(LoadedWorld { entity_map });
     event.after_load(world, &result);
     result
 }
@@ -420,7 +424,7 @@ mod tests {
         let mut app = app();
         app.add_observer(load_on_default_event);
 
-        app.add_observer(|_: Trigger<OnLoad>, mut commands: Commands| {
+        app.add_observer(|_: On<Loaded>, mut commands: Commands| {
             commands.insert_resource(EventTriggered);
         });
 
@@ -429,7 +433,7 @@ mod tests {
         });
 
         let world = app.world_mut();
-        assert!(!world.contains_resource::<Loaded>());
+        assert!(!world.contains_resource::<LoadedWorld>());
         assert!(world.contains_resource::<EventTriggered>());
         assert!(world
             .query_filtered::<(), With<Foo>>()
