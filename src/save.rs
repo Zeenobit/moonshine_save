@@ -7,7 +7,7 @@ use bevy_ecs::entity::EntityHashSet;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryFilter;
 use bevy_log::prelude::*;
-use bevy_scene::{ron, DynamicScene, DynamicSceneBuilder, SceneFilter};
+use bevy_scene::{DynamicScene, DynamicSceneBuilder, SceneFilter};
 
 use moonshine_util::event::{OnSingle, SingleEvent, TriggerSingle};
 use moonshine_util::Static;

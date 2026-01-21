@@ -11,7 +11,7 @@ use bevy_ecs::entity::EntityHashMap;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryFilter;
 use bevy_log::prelude::*;
-use bevy_scene::{ron, serde::SceneDeserializer, SceneSpawnError};
+use bevy_scene::{serde::SceneDeserializer, SceneSpawnError};
 
 use moonshine_util::event::{OnSingle, SingleEvent, TriggerSingle};
 use thiserror::Error;
