@@ -379,7 +379,9 @@ fn load_world<E: LoadEvent>(mut event: E, world: &mut World) -> LoadResult {
     result
 }
 
-struct LoadCommand<E>(E);
+// TODO: Documentation
+#[doc(hidden)]
+pub struct LoadCommand<E>(E);
 
 impl<E: LoadEvent> Command<Result<(), LoadError>> for LoadCommand<E> {
     fn apply(self, world: &mut World) -> Result<(), LoadError> {

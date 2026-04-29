@@ -439,7 +439,9 @@ fn save_world<E: SaveEvent>(mut event: E, world: &mut World) -> SaveResult {
     result
 }
 
-struct SaveCommand<E>(E);
+// TODO: Documentation
+#[doc(hidden)]
+pub struct SaveCommand<E>(E);
 
 impl<E: SaveEvent> Command<Result<(), SaveError>> for SaveCommand<E> {
     fn apply(self, world: &mut World) -> Result<(), SaveError> {
