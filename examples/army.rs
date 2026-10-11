@@ -1,4 +1,7 @@
+use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
+use bevy::ui::Pressed;
+use bevy::ui_widgets::Button;
 use bevy_ecs::entity::{EntityMapper, MapEntities};
 use moonshine_save::prelude::*;
 
@@ -183,7 +186,7 @@ fn button(value: impl Into<String>, bundle: impl Bundle) -> impl Bundle {
                 padding: UiRect::new(Val::Px(10.), Val::Px(10.), Val::Px(5.), Val::Px(5.)),
                 ..default()
             },
-            Button,
+            bevy::ui_widgets::Button,
         ),
         BackgroundColor(bevy::color::palettes::css::DARK_GRAY.into()),
         children![(
@@ -238,57 +241,58 @@ const PRESSED_BUTTON_COLOR: Color = Color::srgb(0.35, 0.75, 0.35);
 
 /// Handle color feedback for buttons.
 fn update_buttons(
-    mut interaction_query: Query<(&Interaction, &mut BackgroundColor), Changed<Interaction>>,
+    mut pressed_query: Query<&mut BackgroundColor, With<Pressed>>,
+    mut hovered_query: Query<&mut BackgroundColor, With<Hovered>>,
+    mut default_query: Query<
+        &mut BackgroundColor,
+        (With<Button>, Without<Pressed>, Without<Hovered>),
+    >,
 ) {
-    for (interaction, mut color) in &mut interaction_query {
-        match *interaction {
-            Interaction::Pressed => {
-                *color = PRESSED_BUTTON_COLOR.into();
-            }
-            Interaction::Hovered => {
-                *color = HOVERED_BUTTON_COLOR.into();
-            }
-            Interaction::None => {
-                *color = DEFAULT_BUTTON_COLOR.into();
-            }
-        }
+    for mut color in &mut pressed_query {
+        *color = PRESSED_BUTTON_COLOR.into();
+    }
+    for mut color in &mut hovered_query {
+        *color = HOVERED_BUTTON_COLOR.into();
+    }
+    for mut color in &mut default_query {
+        *color = DEFAULT_BUTTON_COLOR.into();
     }
 }
 
 fn add_ranged_button_clicked(
-    query: Query<&Interaction, (With<AddRangedButton>, Changed<Interaction>)>,
+    query: Query<(), (With<AddRangedButton>, With<Pressed>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Pressed) = query.single() {
+    if !query.is_empty() {
         let weapon = commands.spawn(WeaponBundle::new(Ranged)).id();
         commands.spawn(SoldierBundle::new(weapon));
     }
 }
 
 fn add_melee_button_clicked(
-    query: Query<&Interaction, (With<AddMeleeButton>, Changed<Interaction>)>,
+    query: Query<(), (With<AddMeleeButton>, With<Pressed>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Pressed) = query.single() {
+    if !query.is_empty() {
         let weapon = commands.spawn(WeaponBundle::new(Melee)).id();
         commands.spawn(SoldierBundle::new(weapon));
     }
 }
 
 fn save_button_clicked(
-    query: Query<&Interaction, (With<SaveButton>, Changed<Interaction>)>,
+    query: Query<(), (With<SaveButton>, With<Pressed>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Pressed) = query.single() {
+    if !query.is_empty() {
         commands.trigger_save(SaveWorld::default_into_file(SAVE_PATH));
     }
 }
 
 fn load_button_clicked(
-    query: Query<&Interaction, (With<LoadButton>, Changed<Interaction>)>,
+    query: Query<(), (With<LoadButton>, With<Pressed>)>,
     mut commands: Commands,
 ) {
-    if let Ok(Interaction::Pressed) = query.single() {
+    if !query.is_empty() {
         commands.trigger_load(LoadWorld::default_from_file(SAVE_PATH));
     }
 }

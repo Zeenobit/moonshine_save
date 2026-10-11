@@ -126,7 +126,7 @@ struct PlayerView {
 }
 
 // Spawn `PlayerView` and associate it with the `Player` entity:
-fn on_player_added(event: On<Add, Player>, mut commands: Commands) {
+fn on_player_added(event: On<Add<Player>>, mut commands: Commands) {
     commands.spawn(PlayerView { player: event.entity });
 }
 ```
