@@ -16,7 +16,7 @@ fn main() {
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             title: "Army".to_string(),
-            resolution: (700, 200).into(),
+            resolution: (700, 300).into(),
             ..default()
         }),
         ..default()
@@ -29,18 +29,14 @@ fn main() {
     // Add gameplay systems:
     .add_systems(Startup, setup)
     .add_systems(Update, (update_text, update_buttons))
-    .add_systems(
-        Update,
-        (
-            add_melee_button_clicked,
-            add_ranged_button_clicked,
-            load_button_clicked,
-            save_button_clicked,
-        ),
-    )
     // Add save/load observers:
     .add_observer(save_on_default_event)
     .add_observer(load_on_default_event)
+    // UI logic:
+    .add_observer(on_add_ranged_button_pressed)
+    .add_observer(on_add_melee_button_pressed)
+    .add_observer(on_load_button_pressed)
+    .add_observer(on_save_button_pressed)
     .run();
 }
 
@@ -240,59 +236,56 @@ const HOVERED_BUTTON_COLOR: Color = Color::srgb(0.25, 0.25, 0.25);
 const PRESSED_BUTTON_COLOR: Color = Color::srgb(0.35, 0.75, 0.35);
 
 /// Handle color feedback for buttons.
-fn update_buttons(
-    mut pressed_query: Query<&mut BackgroundColor, With<Pressed>>,
-    mut hovered_query: Query<&mut BackgroundColor, With<Hovered>>,
-    mut default_query: Query<
-        &mut BackgroundColor,
-        (With<Button>, Without<Pressed>, Without<Hovered>),
-    >,
-) {
-    for mut color in &mut pressed_query {
-        *color = PRESSED_BUTTON_COLOR.into();
-    }
-    for mut color in &mut hovered_query {
-        *color = HOVERED_BUTTON_COLOR.into();
-    }
-    for mut color in &mut default_query {
-        *color = DEFAULT_BUTTON_COLOR.into();
+fn update_buttons(mut query: Query<(&mut BackgroundColor, &Hovered, Has<Pressed>), With<Button>>) {
+    for (mut color, hovered, pressed) in &mut query {
+        if pressed {
+            color.set_if_neq(PRESSED_BUTTON_COLOR.into());
+        } else if hovered.get() {
+            color.set_if_neq(HOVERED_BUTTON_COLOR.into());
+        } else {
+            color.set_if_neq(DEFAULT_BUTTON_COLOR.into());
+        }
     }
 }
 
-fn add_ranged_button_clicked(
-    query: Query<(), (With<AddRangedButton>, With<Pressed>)>,
+fn on_add_ranged_button_pressed(
+    event: On<Add<Pressed>>,
+    query: Query<(), With<AddRangedButton>>,
     mut commands: Commands,
 ) {
-    if !query.is_empty() {
+    if query.contains(event.entity) {
         let weapon = commands.spawn(WeaponBundle::new(Ranged)).id();
         commands.spawn(SoldierBundle::new(weapon));
     }
 }
 
-fn add_melee_button_clicked(
-    query: Query<(), (With<AddMeleeButton>, With<Pressed>)>,
+fn on_add_melee_button_pressed(
+    event: On<Add<Pressed>>,
+    query: Query<(), With<AddMeleeButton>>,
     mut commands: Commands,
 ) {
-    if !query.is_empty() {
+    if query.contains(event.entity) {
         let weapon = commands.spawn(WeaponBundle::new(Melee)).id();
         commands.spawn(SoldierBundle::new(weapon));
     }
 }
 
-fn save_button_clicked(
-    query: Query<(), (With<SaveButton>, With<Pressed>)>,
+fn on_save_button_pressed(
+    event: On<Add<Pressed>>,
+    query: Query<(), With<SaveButton>>,
     mut commands: Commands,
 ) {
-    if !query.is_empty() {
+    if query.contains(event.entity) {
         commands.trigger_save(SaveWorld::default_into_file(SAVE_PATH));
     }
 }
 
-fn load_button_clicked(
-    query: Query<(), (With<LoadButton>, With<Pressed>)>,
+fn on_load_button_pressed(
+    event: On<Add<Pressed>>,
+    query: Query<(), With<LoadButton>>,
     mut commands: Commands,
 ) {
-    if !query.is_empty() {
+    if query.contains(event.entity) {
         commands.trigger_load(LoadWorld::default_from_file(SAVE_PATH));
     }
 }
