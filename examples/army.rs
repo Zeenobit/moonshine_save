@@ -21,11 +21,6 @@ fn main() {
         }),
         ..default()
     }))
-    // Register game types for de/serialization
-    .register_type::<Soldier>()
-    .register_type::<SoldierWeapon>()
-    .register_type::<Option<Entity>>()
-    .register_type::<WeaponKind>()
     // Add gameplay systems:
     .add_systems(Startup, setup)
     .add_systems(Update, (update_text, update_buttons))
